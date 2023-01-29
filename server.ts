@@ -2,7 +2,7 @@ import express from "express";
 import dotenv from "dotenv";
 import { blockchainInit } from "./src/controllers/blockchain";
 import { Contract, Gateway } from "@hyperledger/fabric-gateway";
-import { closeGRPCConnection, createAsset, getAllAssets, getAssetProvenance, readAssetByID, updateAsset } from "./src/utils";
+import { closeGRPCConnection, createAsset, getAllAssets, getAssetProvenance, isPasswordValid, readAssetByID, updateAsset } from "./src/utils";
 import { Client } from "@grpc/grpc-js";
 import { v4 } from "uuid";
 import Model from "./src/models/index";
@@ -61,6 +61,10 @@ app.post("/organization", async (req, res) => {
     const { organization_name, organization_type_id, organization_address, organization_phone, organization_username, organization_password } = req.body;
 
     try {
+
+        const result = isPasswordValid(organization_password);
+
+        if (Object.keys(result).length) return res.send({ message: result });
 
         const account = await Model.Organization.findOne({ organization_username: { $eq: organization_username } })
 
