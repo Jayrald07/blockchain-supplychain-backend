@@ -9,24 +9,28 @@ import Model from "./src/models/index";
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-
-
+import QRCode from "qrcode";
+import cors from "cors"
 
 dotenv.config();
 
+
 const app = express();
+
+app.use(cors({
+    origin: "*"
+}))
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }))
 
 
-
 app.post("/asset", async (req, res) => {
-    const { asset_name, tags }: { asset_name: string, tags: any[] } = req.body;
+    const { asset_name, tags, asset_description }: { asset_name: string, tags: any[], asset_description: string } = req.body;
     let tag = null, tag_code = v4(), token = req.headers["authorization"]?.split(" ")[1];
 
     try {
-
+        console.log(req.body)
         const payload: any = jwt.verify(token as string, process.env.SECRET_KEY as string)
 
         if (tags.length) {
@@ -37,7 +41,7 @@ app.post("/asset", async (req, res) => {
             }
         }
 
-        const asset = new Model.Asset({ asset_name, tag_code, asset_uuid: v4().replaceAll("-", "") })
+        const asset = new Model.Asset({ asset_name, tag_code, asset_description, asset_uuid: v4().replaceAll("-", "") })
         const response = await asset.save();
 
         const org_asset = await Model.OrganizationAsset.findOne({ organization_details_id: { $eq: payload.organization_id as string } })
@@ -47,7 +51,7 @@ app.post("/asset", async (req, res) => {
         } else {
             await new Model.OrganizationAsset({
                 organization_details_id: payload.organization_id,
-                asset_id: [response._id]
+                asset_id: [response._id],
             }).save();
         }
 
@@ -59,16 +63,16 @@ app.post("/asset", async (req, res) => {
 
 app.post("/organization", async (req, res) => {
     const { organization_name, organization_type_id, organization_address, organization_phone, organization_username, organization_password } = req.body;
-
+    console.log(req.body)
     try {
 
         const result = isPasswordValid(organization_password);
 
-        if (Object.keys(result).length) return res.send({ message: result });
+        if (Object.keys(result).length) return res.json({ message: result });
 
         const account = await Model.Organization.findOne({ organization_username: { $eq: organization_username } })
 
-        if (account) return res.send({ message: "Username already taken" });
+        if (account) return res.json({ message: "Username already taken" });
 
         const newPassword = await bcrypt.hash(organization_password, 10);
 
@@ -88,7 +92,7 @@ app.post("/organization", async (req, res) => {
         })
 
         await organization.save();
-        res.send({ message: "Organization created!" })
+        res.json({ message: "Organization created!" })
     } catch (e: any) {
         res.send({ message: "Error!", details: e.message })
     }
@@ -96,7 +100,7 @@ app.post("/organization", async (req, res) => {
 
 app.post("/auth", async (req, res) => {
     const { username, password } = req.body;
-
+    console.log(req.body)
     try {
         const account = await Model.Organization.findOne({ organization_username: { $eq: username } });
 
@@ -115,24 +119,24 @@ app.post("/auth", async (req, res) => {
 })
 
 app.get("/assets", async (req: any, res) => {
-    const count = await Model.Asset.count();
+    const count = await Model.Asset.find({ isDelete: 0 }).count();
     const page = req.query.page
 
     if (page > Math.ceil(count / 10)) return res.send({ message: "out of bound" })
 
-    const assets = await Model.Asset.find().skip((parseInt(page) - 1) * 10).limit(10)
+    const assets = await Model.Asset.find({ isDelete: 0 }, { isDelete: 0, __v: 0 }).skip((parseInt(page) - 1) * 10).limit(10)
 
-    res.send({ page: parseInt(page), pageCount: Math.ceil(count / 10), assets })
+    res.send({ page: parseInt(page), pageCount: Math.ceil(count / 10), assets, count })
 })
 
 app.put("/asset", async (req, res) => {
-    const { asset_id, asset_name } = req.body;
+    const { asset_id, asset_name, asset_description } = req.body;
 
-    const asset = await Model.Asset.findById(asset_id)
+    const asset = await Model.Asset.findOne({ _id: asset_id, isDelete: 0 })
 
     if (!asset) return res.send({ message: "Asset is not existing" });
 
-    await Model.Asset.findByIdAndUpdate(asset_id, { asset_name });
+    await Model.Asset.findByIdAndUpdate(asset_id, { asset_name, asset_description });
 
     res.send({ message: "Asset updated!" });
 
@@ -141,7 +145,7 @@ app.put("/asset", async (req, res) => {
 app.get("/asset/:asset_id", async (req, res) => {
     const asset_id = req.params.asset_id;
 
-    const asset = await Model.Asset.findById(asset_id, { __v: 0, _id: 0 });
+    const asset = await Model.Asset.findOne({ _id: asset_id, isDelete: 0 }, { __v: 0, _id: 0, isDelete: 0 });
 
     if (!asset) return res.send({ message: "Asset is not existing" });
 
@@ -206,6 +210,57 @@ app.post("/tag", async (req, res) => {
     res.send({ message: "Tags created" });
 
 })
+
+app.delete("/asset/:asset_id", async (req, res) => {
+    const { asset_id } = req.params;
+
+    const asset = await Model.Asset.findOne({ _id: asset_id, isDelete: 0 });
+
+    if (!asset) return res.send({ message: "Asset is not existing." });
+
+    await asset?.updateOne({ isDelete: 1 });
+
+    res.send({ message: "Asset deleted!" });
+
+});
+
+app.get("/account", async (req: any, res) => {
+    const token = req.headers.authorization.split(" ")[1];
+
+    const payload: any = jwt.decode(token);
+
+    const organization = await Model.OrganizationDetails.findById(payload.organization_id, { __v: 0 }).populate("organization_type_id", "-_id")
+
+    res.send({ ...organization?.toJSON(), username: payload.username });
+
+});
+
+app.put("/account", async (req: any, res) => {
+    const token = req.headers.authorization.split(" ")[1];
+
+    const payload: any = jwt.decode(token);
+
+    const organization = await Model.OrganizationDetails.findById(payload.organization_id)
+
+    if (!organization) return res.send({ message: "Account is not existing." });
+
+    await organization.updateOne(req.body);
+
+    res.send({ message: "Account updated!" });
+
+});
+
+app.get("/search/asset/:name", async (req: any, res) => {
+    const { name } = req.params
+
+
+    const asset = await Model.Asset.find({ asset_name: new RegExp((name === "all" ? "" : name)), isDelete: 0 }, { __v: 0, isDelete: 0 });
+
+    res.json({ asset })
+
+})
+
+
 
 // app.get("/assets", async (req, res) => {
 //     try {

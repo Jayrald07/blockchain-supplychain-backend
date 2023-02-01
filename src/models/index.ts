@@ -34,7 +34,9 @@ const asset = new Schema({
     asset_id: String,
     asset_name: String,
     asset_uuid: String,
-    tag_code: String
+    asset_description: String,
+    tag_code: String,
+    isDelete: { type: Boolean, default: 0 }
 })
 
 const tag = new Schema({

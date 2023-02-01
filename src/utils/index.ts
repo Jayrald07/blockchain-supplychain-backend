@@ -151,7 +151,7 @@ export function isPasswordValid(password: string) {
     if (/.{8}/.test(password)) delete conditions.characters;
     if (/\d/.test(password)) delete conditions.number;
     if (/^[A-Z]/.test(password)) delete conditions.capital;
-    if (/[!@#$%^&*(),.?":{}|<>]/.test(password)) delete conditions.special;
+    if (/[!@#$%^&*(),.?":{}|<>_]/.test(password)) delete conditions.special;
 
     return conditions;
 }
