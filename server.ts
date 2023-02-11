@@ -11,6 +11,7 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import QRCode from "qrcode";
 import cors from "cors"
+import axios from "axios"
 
 dotenv.config();
 
@@ -260,7 +261,121 @@ app.get("/search/asset/:name", async (req: any, res) => {
 
 })
 
+app.get("/types", async (req: any, res) => {
+    const types = await Model.OrganizationType.find({});
 
+    res.send({ types });
+});
+
+app.post("/external", async (req: any, res) => {
+    const { organization_name, organization_type, username, password } = req.body;
+
+    try {
+
+        const checkName = await Model.Organization.findOne({ organization_username: { $eq: username } });
+
+        if (checkName) return res.send({ message: "Error", details: "Username already taken" });
+
+        const checkPass = isPasswordValid(password);
+
+        if (Object.keys(checkPass).length) return res.send({
+            message: "Error",
+            details: checkPass
+        })
+
+        const details = new Model.OrganizationDetails({
+            organization_name,
+            organization_type_id: organization_type,
+        })
+
+        let detailsResponse = await details.save();
+
+        const encryptedPass = await bcrypt.hash(password, 10);
+
+        const organization = new Model.Organization({
+            organization_username: username,
+            organization_password: encryptedPass,
+            organization_details_id: detailsResponse._id
+        });
+
+        await organization.save();
+        const identifier = v4()
+
+        const organizationID = new Model.OrganizationID({
+            organization_details_id: detailsResponse._id,
+            identifier,
+            status: "waiting"
+        })
+
+        const idResponse = await organizationID.save();
+
+        res.send({
+            message: "Done",
+            details: {
+                id: identifier
+            }
+        });
+
+
+    } catch (err: any) {
+        res.send({ message: "Error", details: err.message });
+    }
+
+})
+
+app.post("/validateID", async (req: any, res) => {
+    const { identifier } = req.body;
+
+    const id = await Model.OrganizationID.findOne({ identifier });
+
+    if (id) return res.send({ message: "Done", details: id._id });
+
+    res.send({ message: "Not found", details: null });
+
+});
+
+app.post("/validateAssociation", async (req: any, res) => {
+    const { username, password, identifier } = req.body;
+
+    const org = await Model.OrganizationID.findOne({
+        identifier,
+    });
+
+
+    if (!org) return res.send({ message: "Error", details: "Invalid ID" });
+    if (org.status === "used") return res.send({ message: "Error", details: "ID is already used" });
+
+    const details = await Model.Organization.findOne({ organization_username: username })
+
+    if (!details) return res.send({ message: "Error", details: "Username is not existing" });
+
+    if (bcrypt.compareSync(password, details?.organization_password as string)) await org.updateOne({ status: "used" });
+    else return res.send({ message: "Error", details: "Incorrect username or password" })
+
+    res.send({ message: "Done", details: { status: "valid", id: details._id } });
+
+});
+
+app.post("/createConnection", async (req: any, res) => {
+    const { ip, port, organization_id } = req.body;
+
+    try {
+        const { data } = await axios.get(`http://${ip}:${port}/ping`);
+
+        if (data.message !== "Done" && data.details !== "pong") return res.send({ message: "Error", details: "Cannot ping the address and port provided" });
+
+        const details = await Model.OrganizationDetails.findById(organization_id)
+
+        if (!details) return res.send({ message: "Error", details: "Cannot find organization" });
+
+        await details.updateOne({ organization_ip: ip, organization_port: port });
+
+        res.send({ message: "Done", details: "Host verified" });
+    } catch (err: any) {
+        res.send({ message: "Error", details: "Cannot ping the provided IP and port" });
+    }
+
+})
 
 // app.get("/assets", async (req, res) => {
 //     try {

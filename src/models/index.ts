@@ -6,12 +6,21 @@ const organization = new Schema({
     organization_details_id: { type: Schema.Types.ObjectId, ref: 'OrganizationDetails' }
 });
 
+// Status is "used", "waiting"
+const organization_id = new Schema({
+    organization_details_id: Schema.Types.ObjectId,
+    identifier: String,
+    status: String
+})
+
 const organization_details = new Schema({
     organization_details_id: String,
     organization_type_id: { type: Schema.Types.ObjectId, ref: 'OrganizationType' },
     organization_name: String,
     organization_address: String,
-    organization_phone: String
+    organization_phone: String,
+    organization_ip: String,
+    organization_port: String
 })
 
 const organization_type = new Schema({
@@ -51,6 +60,7 @@ const OrganizationType = mongoose.model('OrganizationType', organization_type);
 const OrganizationDetails = mongoose.model('OrganizationDetails', organization_details);
 const OrganizationOU = mongoose.model('OrganizationOU', organization_ou);
 const OrganizationAsset = mongoose.model('OrganizationAsset', organization_asset);
+const OrganizationID = mongoose.model("OrganizationID", organization_id);
 const Asset = mongoose.model('Asset', asset);
 const Tag = mongoose.model('Tag', tag);
 
@@ -60,6 +70,7 @@ export default {
     OrganizationDetails,
     OrganizationOU,
     OrganizationAsset,
+    OrganizationID,
     Asset,
     Tag
 }
