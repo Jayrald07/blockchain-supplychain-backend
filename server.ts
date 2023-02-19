@@ -12,6 +12,7 @@ import jwt from "jsonwebtoken";
 import QRCode from "qrcode";
 import cors from "cors"
 import axios from "axios"
+import { sleep } from "./src/utils/general";
 
 dotenv.config();
 
@@ -352,15 +353,16 @@ app.post("/validateAssociation", async (req: any, res) => {
     if (bcrypt.compareSync(password, details?.organization_password as string)) await org.updateOne({ status: "used" });
     else return res.send({ message: "Error", details: "Incorrect username or password" })
 
-    res.send({ message: "Done", details: { status: "valid", id: details._id } });
+    res.send({ message: "Done", details: { status: "valid", id: details.organization_details_id } });
 
 });
 
 app.post("/createConnection", async (req: any, res) => {
     const { ip, port, organization_id } = req.body;
-
+    console.log(req.body)
     try {
-        const { data } = await axios.get(`http://${ip}:${port}/ping`);
+        const { data } = await axios.get(`https://${ip}:${port}/ping`);
+        console.log(data);
 
         if (data.message !== "Done" && data.details !== "pong") return res.send({ message: "Error", details: "Cannot ping the address and port provided" });
 
@@ -372,6 +374,7 @@ app.post("/createConnection", async (req: any, res) => {
 
         res.send({ message: "Done", details: "Host verified" });
     } catch (err: any) {
+        console.log(err)
         res.send({ message: "Error", details: "Cannot ping the provided IP and port" });
     }
 
@@ -443,13 +446,47 @@ app.post("/createConnection", async (req: any, res) => {
 
 // })
 
+app.post("/joinOrg", async (req: any, res) => {
+    const { orgName, otherOrgName, channelId, creatorHost, receiverHost } = req.body;
+
+    // Get channel config from org that is already in the channel
+    const { data } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+        orgName,
+        channelId
+    })
+
+    const { data: result } = await axios.post(`http://${receiverHost}/receiveChannelConfig`, {
+        channelConfig: data.details.config.data,
+        ordererTlsCa: data.details.ordererTlsCa.data,
+        orgName: otherOrgName,
+        otherOrgName: orgName,
+        channelId
+    })
+
+    const { data: signed } = await axios.post(`http://${creatorHost}/signAndUpdateChannel`, {
+        orgName,
+        channelId,
+        updateBlock: result.details.block.data
+    })
+
+    const { data: joined } = await axios.post(`http://${receiverHost}/joinChannelNow`, {
+        channelId,
+        ordererGeneralPort: signed.details.ordererGeneralPort,
+        otherOrgName: orgName,
+        orgName: otherOrgName,
+        updateBlock: signed.details.block.data,
+        ordererTlsCa: data.details.ordererTlsCa.data,
+    })
+
+    res.send({ joined });
+})
+
 mongoose.connect(`mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@supply-chain.9tknr9d.mongodb.net/?retryWrites=true&w=majority`).then(() => {
-    console.log("Connected to database")
     app.listen(process.env.PORT || 8081, async () => {
         console.log(`Listening to port ${process.env.PORT || 8081}`);
     })
-
 }).catch((e) => {
+    console.log(e);
     console.log("Cannot connect to database")
 })
 

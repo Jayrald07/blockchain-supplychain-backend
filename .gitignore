@@ -13,3 +13,7 @@ jspm_packages/
 # Compiled TypeScript files
 dist
 .env
+
+*.crt
+*.csr
+*.key
