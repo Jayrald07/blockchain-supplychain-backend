@@ -1,6 +1,5 @@
 import express from "express";
 import dotenv from "dotenv";
-import { blockchainInit } from "./src/controllers/blockchain";
 import { Contract, Gateway } from "@hyperledger/fabric-gateway";
 import { closeGRPCConnection, createAsset, getAllAssets, getAssetProvenance, isPasswordValid, readAssetByID, updateAsset } from "./src/utils";
 import { Client } from "@grpc/grpc-js";
@@ -9,15 +8,28 @@ import Model from "./src/models/index";
 import mongoose from "mongoose";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
-import QRCode from "qrcode";
 import cors from "cors"
 import axios from "axios"
-import { sleep } from "./src/utils/general";
+import { approveChaincode, checkCommitReadiness, collectAndTransferCa, commitChaincode, initializeChaincode, installChaincode, setupCollectionConfig } from "./src/controllers/chaincode";
+import { validateJson } from "./src/controllers/validator";
+import { authenticateAccount, createOrganization, getOrganizations, pingNode } from "./src/controllers/account";
+import { Server, Socket } from "socket.io";
+import { createServer } from "http";
+import { IOServer } from "./src/socket";
+import { connectedOrganizations, inviteConnect, inviteResponse, invitesReceived, invitesSent } from "./src/controllers/channel";
 
 dotenv.config();
 
-
 const app = express();
+
+const httpServer = createServer(app);
+const io = new Server(httpServer, {
+    cors: {
+        origin: "*"
+    }
+});
+
+const ioServer = new IOServer(io);
 
 app.use(cors({
     origin: "*"
@@ -26,6 +38,16 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }))
 
+app.use(validateJson);
+
+app.use((req: any, _, next) => {
+    req.io = ioServer.io;
+    next();
+});
+
+app.use(ioServer.route)
+
+app.get("/ping", pingNode);
 
 app.post("/asset", async (req, res) => {
     const { asset_name, tags, asset_description }: { asset_name: string, tags: any[], asset_description: string } = req.body;
@@ -63,72 +85,26 @@ app.post("/asset", async (req, res) => {
     }
 });
 
-app.post("/organization", async (req, res) => {
-    const { organization_name, organization_type_id, organization_address, organization_phone, organization_username, organization_password } = req.body;
-    console.log(req.body)
-    try {
+app.post("/organization", createOrganization);
 
-        const result = isPasswordValid(organization_password);
-
-        if (Object.keys(result).length) return res.json({ message: result });
-
-        const account = await Model.Organization.findOne({ organization_username: { $eq: organization_username } })
-
-        if (account) return res.json({ message: "Username already taken" });
-
-        const newPassword = await bcrypt.hash(organization_password, 10);
-
-        const organizationDetails = new Model.OrganizationDetails({
-            organization_name,
-            organization_address,
-            organization_phone,
-            organization_type_id
-        })
-
-        const response = await organizationDetails.save();
-
-        const organization = new Model.Organization({
-            organization_username,
-            organization_password: newPassword,
-            organization_details_id: response._id
-        })
-
-        await organization.save();
-        res.json({ message: "Organization created!" })
-    } catch (e: any) {
-        res.send({ message: "Error!", details: e.message })
-    }
-});
-
-app.post("/auth", async (req, res) => {
-    const { username, password } = req.body;
-    console.log(req.body)
-    try {
-        const account = await Model.Organization.findOne({ organization_username: { $eq: username } });
-
-        if (!account) return res.send({ message: "Invalid username or password" });
-
-        const isEqual = await bcrypt.compare(password, account.organization_password as string);
-
-        if (!isEqual) return res.send({ message: "Invalid username or password" });
-
-        res.send({ message: "Authorized", token: jwt.sign({ username, organization_id: account.organization_details_id }, process.env.SECRET_KEY as string, { expiresIn: "1d" }) })
-
-
-    } catch (e: any) {
-        res.send({ message: "Error!", details: e.message })
-    }
-})
+app.post("/auth", authenticateAccount);
 
 app.get("/assets", async (req: any, res) => {
-    const count = await Model.Asset.find({ isDelete: 0 }).count();
-    const page = req.query.page
 
-    if (page > Math.ceil(count / 10)) return res.send({ message: "out of bound" })
+    try {
+        const count = await Model.Asset.find({ isDelete: 0 }).count();
+        const page = req.query.page
 
-    const assets = await Model.Asset.find({ isDelete: 0 }, { isDelete: 0, __v: 0 }).skip((parseInt(page) - 1) * 10).limit(10)
+        if (page > Math.ceil(count / 10)) return res.send({ message: "out of bound" })
 
-    res.send({ page: parseInt(page), pageCount: Math.ceil(count / 10), assets, count })
+        const assets = await Model.Asset.find({ isDelete: 0 }, { isDelete: 0, __v: 0 }).skip((parseInt(page) - 1) * 10).limit(10)
+
+        res.send({ page: parseInt(page), pageCount: Math.ceil(count / 10), assets, count })
+
+    } catch (error: any) {
+        res.send({ message: "Error", details: error.message })
+    }
+
 })
 
 app.put("/asset", async (req, res) => {
@@ -327,7 +303,7 @@ app.post("/external", async (req: any, res) => {
 app.post("/validateID", async (req: any, res) => {
     const { identifier } = req.body;
 
-    const id = await Model.OrganizationID.findOne({ identifier });
+    const id = await Model.OrganizationID.findOne({ identifier, status: "waiting" });
 
     if (id) return res.send({ message: "Done", details: id._id });
 
@@ -346,14 +322,14 @@ app.post("/validateAssociation", async (req: any, res) => {
     if (!org) return res.send({ message: "Error", details: "Invalid ID" });
     if (org.status === "used") return res.send({ message: "Error", details: "ID is already used" });
 
-    const details = await Model.Organization.findOne({ organization_username: username })
+    const details = await Model.Organization.findOne({ organization_details_id: org.organization_details_id, organization_username: username });
 
-    if (!details) return res.send({ message: "Error", details: "Username is not existing" });
+    if (!details) return res.send({ message: "Error", details: "Incorrect username or password" });
 
-    if (bcrypt.compareSync(password, details?.organization_password as string)) await org.updateOne({ status: "used" });
+    if (bcrypt.compareSync(password, details?.organization_password as string)) res.send({ message: "Done", details: { status: "valid", id: details.organization_details_id } });
     else return res.send({ message: "Error", details: "Incorrect username or password" })
 
-    res.send({ message: "Done", details: { status: "valid", id: details.organization_details_id } });
+
 
 });
 
@@ -361,8 +337,7 @@ app.post("/createConnection", async (req: any, res) => {
     const { ip, port, organization_id } = req.body;
     console.log(req.body)
     try {
-        const { data } = await axios.get(`https://${ip}:${port}/ping`);
-        console.log(data);
+        const { data } = await axios.get(`http://${ip}:${port}/ping`);
 
         if (data.message !== "Done" && data.details !== "pong") return res.send({ message: "Error", details: "Cannot ping the address and port provided" });
 
@@ -372,6 +347,12 @@ app.post("/createConnection", async (req: any, res) => {
 
         await details.updateOne({ organization_ip: ip, organization_port: port });
 
+        const id = await Model.OrganizationID.findOne({ organization_details_id: organization_id, status: "waiting" });
+
+        if (!details) return res.send({ message: "Error", details: "Cannot find organization" });
+
+        await id?.update({ status: "used" })
+
         res.send({ message: "Done", details: "Host verified" });
     } catch (err: any) {
         console.log(err)
@@ -380,109 +361,157 @@ app.post("/createConnection", async (req: any, res) => {
 
 })
 
-// app.get("/assets", async (req, res) => {
-//     try {
-//         const blockchain = await blockchainInit();
+app.post("/channel", async (req, res) => {
 
-//         res.status(200).json(await getAllAssets(blockchain?.[2] as Contract))
+    const { channelId, orgName, channelToMSP, host, port } = req.body;
 
-//         if (await closeGRPCConnection(blockchain?.[0] as Gateway, blockchain?.[1] as Client)) console.log("Disconnected")
-//     } catch (e) {
-//         res.send(e);
-//     }
-// })
+    try {
 
-// app.get("/asset/:id", async (req, res) => {
+        const channel = await axios.post(`http://${host}:${port}/channel`, {
+            channelId,
+            orgName,
+            channelToMSP
+        })
 
-//     try {
-//         const blockchain = await blockchainInit();
+        res.send({ message: "Done", details: channel.data })
 
-//         res.status(200).json(await readAssetByID(blockchain?.[2] as Contract, req.params.id))
+    } catch (error: any) {
+        res.send({ message: "Error", details: error.message })
+    }
 
-//         if (await closeGRPCConnection(blockchain?.[0] as Gateway, blockchain?.[1] as Client)) console.log("Disconnected")
+});
 
-//     } catch ({ details, message }: any) {
-//         res.send({ message, details })
-//     }
+app.get("/channels", async (req: any, res) => {
 
-// })
+    const { orgName, host, port } = req.query;
+    console.log(req?.orgId)
 
-// app.get("/provenance/:id", async (req, res) => {
-//     const blockchain = await blockchainInit();
+    try {
 
-//     res.status(200).json(await getAssetProvenance(blockchain?.[2] as Contract, req.params.id))
+        const channel = await axios.get(`http://${host}:${port}/channels?orgName=${orgName}`);
 
-//     if (await closeGRPCConnection(blockchain?.[0] as Gateway, blockchain?.[1] as Client)) console.log("Disconnected")
-// })
+        res.send({ message: "Done", details: channel.data });
 
-// app.post("/asset", async (req, res) => {
-//     // const blockchain = await blockchainInit();
-//     // const { color, owner, size } = req.body;
+    } catch (error: any) {
+        res.send({ message: "Done", details: error.message })
+    }
 
-//     // res.status(200).json(await createAsset(blockchain?.[2] as Contract, {
-//     //     id: v4().split("-").join(""),
-//     //     color,
-//     //     owner,
-//     //     size
-//     // }))
-
-//     // if (await closeGRPCConnection(blockchain?.[0] as Gateway, blockchain?.[1] as Client)) console.log("Disconnected")
-// })
-
-// app.put("/asset/:id", async (req, res) => {
-//     const blockchain = await blockchainInit();
-//     const { color, size, owner } = req.body
-//     const id = req.params.id
-
-//     res.status(200).json(await updateAsset(blockchain?.[2] as Contract, { color, size, id, owner }))
-
-//     if (await closeGRPCConnection(blockchain?.[0] as Gateway, blockchain?.[1] as Client)) console.log("Disconnected")
-
-// })
-
-// app.put("/transfer/:id", async (req, res) => {
-//     // Needs a thorough reading
-//     console.log("See! It works!")
-
-// })
-
-app.post("/joinOrg", async (req: any, res) => {
-    const { orgName, otherOrgName, channelId, creatorHost, receiverHost } = req.body;
-
-    // Get channel config from org that is already in the channel
-    const { data } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
-        orgName,
-        channelId
-    })
-
-    const { data: result } = await axios.post(`http://${receiverHost}/receiveChannelConfig`, {
-        channelConfig: data.details.config.data,
-        ordererTlsCa: data.details.ordererTlsCa.data,
-        orgName: otherOrgName,
-        otherOrgName: orgName,
-        channelId
-    })
-
-    const { data: signed } = await axios.post(`http://${creatorHost}/signAndUpdateChannel`, {
-        orgName,
-        channelId,
-        updateBlock: result.details.block.data
-    })
-
-    const { data: joined } = await axios.post(`http://${receiverHost}/joinChannelNow`, {
-        channelId,
-        ordererGeneralPort: signed.details.ordererGeneralPort,
-        otherOrgName: orgName,
-        orgName: otherOrgName,
-        updateBlock: signed.details.block.data,
-        ordererTlsCa: data.details.ordererTlsCa.data,
-    })
-
-    res.send({ joined });
 })
 
+app.post("/joinOrg", async (req: any, res) => {
+    const { orgName, otherOrgName, channelId, creatorHost, receiverHost, orgType } = req.body;
+
+    try {
+        const { data } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+            orgName,
+            channelId
+        })
+        console.log(".")
+        const { data: result } = await axios.post(`http://${receiverHost}/receiveChannelConfig`, {
+            channelConfig: data.details.config.data,
+            ordererTlsCa: data.details.ordererTlsCa.data,
+            orgName: otherOrgName,
+            otherOrgName: orgName,
+            channelId,
+            orgType
+        })
+
+        const { data: signed } = await axios.post(`http://${creatorHost}/signAndUpdateChannel`, {
+            orgName,
+            channelId,
+            updateBlock: result.details.block.data,
+            orgType
+        })
+
+        const { data: joined } = await axios.post(`http://${receiverHost}/joinChannelNow`, {
+            channelId,
+            ordererGeneralPort: signed.details.ordererGeneralPort,
+            otherOrgName: orgName,
+            orgName: otherOrgName,
+            updateBlock: signed.details.block.data,
+            ordererTlsCa: data.details.ordererTlsCa.data,
+        })
+
+        res.send({ joined });
+    } catch (err: any) {
+        res.send({ message: "Error", details: err.message })
+    }
+
+    // Get channel config from org that is already in the channel
+})
+
+app.post("/joinOrderer", async (req, res) => {
+    const { orgName, otherOrgName, channelId, creatorHost, receiverHost, orgType } = req.body;
+
+    try {
+        const { data } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+            orgName,
+            channelId
+        })
+        console.log({ data })
+        const { data: result } = await axios.post(`http://${receiverHost}/receiveChannelConfig`, {
+            channelConfig: data.details.config.data,
+            ordererTlsCa: data.details.ordererTlsCa.data,
+            orgName: otherOrgName,
+            otherOrgName: orgName,
+            channelId,
+            orgType
+        })
+
+        const { data: signed } = await axios.post(`http://${creatorHost}/signAndUpdateChannel`, {
+            orgName,
+            channelId,
+            updateBlock: result.details.block.data,
+            orgType
+        })
+
+        const { data: config } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+            orgName,
+            channelId
+        })
+
+        const { data: joined } = await axios.post(`http://${receiverHost}/joinOrdererNow`, {
+            channelId,
+            orgName: otherOrgName,
+            channelConfig: config.details.config.data,
+        })
+
+        res.send({ joined });
+    } catch (err: any) {
+        res.send({ message: "Error", details: err.message })
+    }
+
+})
+
+app.post("/setup-collections-config", setupCollectionConfig);
+
+app.post("/installchaincode", installChaincode);
+
+app.post("/approvechaincode", approveChaincode);
+
+app.post("/collectandtransferca", collectAndTransferCa)
+
+app.post("/checkcommitreadiness", checkCommitReadiness);
+
+app.post("/commitchaincode", commitChaincode);
+
+app.post("/initializechaincode", initializeChaincode);
+
+app.get("/organizations", getOrganizations);
+
+app.get("/invitesReceived", invitesReceived)
+
+app.get("/invitesSent", invitesSent)
+
+app.put("/inviteResponse", inviteResponse);
+
+app.put("/inviteConnect", inviteConnect);
+
+app.get("/connectedOrganizations", connectedOrganizations);
+
 mongoose.connect(`mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@supply-chain.9tknr9d.mongodb.net/?retryWrites=true&w=majority`).then(() => {
-    app.listen(process.env.PORT || 8081, async () => {
+    console.log("Connected to database")
+    httpServer.listen(process.env.PORT || 8081, async () => {
         console.log(`Listening to port ${process.env.PORT || 8081}`);
     })
 }).catch((e) => {

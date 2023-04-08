@@ -1,4 +1,4 @@
-import mongoose, { Schema } from "mongoose";
+import mongoose, { Schema, SchemaTypes } from "mongoose";
 
 const organization = new Schema({
     organization_username: String,
@@ -8,7 +8,7 @@ const organization = new Schema({
 
 // Status is "used", "waiting"
 const organization_id = new Schema({
-    organization_details_id: Schema.Types.ObjectId,
+    organization_details_id: { type: Schema.Types.ObjectId, ref: 'OrganizationDetails' },
     identifier: String,
     status: String
 })
@@ -53,6 +53,15 @@ const tag = new Schema({
     tag_key: String,
     tag_value: String,
     tag_code: String
+});
+
+const invite = new Schema({
+    organization_id: { type: Schema.Types.ObjectId, ref: 'OrganizationDetails' },
+    invited_organization_id: { type: Schema.Types.ObjectId, ref: 'OrganizationDetails' },
+    // INVITED, ACCEPTED, CONNECTED, REJECTED
+    status: { type: String, default: 'INVITED' },
+    expiresIn: SchemaTypes.Date,
+    dateConnected: SchemaTypes.Date
 })
 
 const Organization = mongoose.model('Organization', organization);
@@ -63,6 +72,7 @@ const OrganizationAsset = mongoose.model('OrganizationAsset', organization_asset
 const OrganizationID = mongoose.model("OrganizationID", organization_id);
 const Asset = mongoose.model('Asset', asset);
 const Tag = mongoose.model('Tag', tag);
+const Invite = mongoose.model('Invite', invite);
 
 export default {
     Organization,
@@ -72,5 +82,6 @@ export default {
     OrganizationAsset,
     OrganizationID,
     Asset,
-    Tag
+    Tag,
+    Invite
 }

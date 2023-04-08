@@ -4,7 +4,7 @@ import crypto from "crypto";
 import * as grpc from '@grpc/grpc-js';
 import { TextDecoder } from "util";
 import { Identity, Signer, signers, connect, Gateway, Contract, SubmittedTransaction, Network } from "@hyperledger/fabric-gateway";
-import { toAssetJSON } from "../helpers";
+import { toAssetJSON } from "./general";
 
 interface Asset {
     color: string
@@ -14,7 +14,7 @@ interface Asset {
     // doctype: string
 }
 
-enum RESPONSE {
+enum Response {
     OK = 1,
     ERROR
 }
@@ -100,12 +100,12 @@ export async function updateAsset(contract: Contract, data: Asset): Promise<Asse
     return data
 }
 
-export async function deleteAsset(contract: Contract, ID: string): Promise<RESPONSE> {
+export async function deleteAsset(contract: Contract, ID: string): Promise<Response> {
     await contract.submitTransaction("DeleteAsset", ID);
-    return RESPONSE.OK
+    return Response.OK
 }
 
-export async function transferAssetAsync(contract: Contract, ID: string, owner: string): Promise<RESPONSE> {
+export async function transferAssetAsync(contract: Contract, ID: string, owner: string): Promise<Response> {
 
     const commit: SubmittedTransaction = await contract.submitAsync('TransferAsset', {
         arguments: [ID, owner],
@@ -119,7 +119,7 @@ export async function transferAssetAsync(contract: Contract, ID: string, owner: 
         throw new Error(`Transaction ${status.transactionId} failed to commit with status code ${status.code}`);
     }
 
-    return RESPONSE.OK
+    return Response.OK
 }
 
 export async function getAssetProvenance(contract: Contract, ID: string): Promise<JSON> {
@@ -134,10 +134,10 @@ export async function getAllAssets(contract: Contract): Promise<JSON> {
 }
 
 
-export async function closeGRPCConnection(gateway: Gateway, client: grpc.Client): Promise<RESPONSE> {
+export async function closeGRPCConnection(gateway: Gateway, client: grpc.Client): Promise<Response> {
     gateway.close();
     client.close();
-    return RESPONSE.OK
+    return Response.OK
 }
 
 export function isPasswordValid(password: string) {
@@ -154,4 +154,8 @@ export function isPasswordValid(password: string) {
     if (/[!@#$%^&*(),.?":{}|<>_]/.test(password)) delete conditions.special;
 
     return conditions;
+}
+
+export function promiseCallback(callback: Function): void {
+
 }
