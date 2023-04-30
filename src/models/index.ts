@@ -45,14 +45,18 @@ const asset = new Schema({
     asset_uuid: String,
     asset_description: String,
     tag_code: String,
+    origin: { type: Schema.Types.ObjectId, ref: 'OrganizationDetails' },
     isDelete: { type: Boolean, default: 0 }
 })
 
 const tag = new Schema({
     tag_id: String,
     tag_key: String,
-    tag_value: String,
-    tag_code: String
+    // NUMBER, PESO, TEXT, TEXTFIELD, OPTIONS
+    tag_type: {type: String, default: "TEXT"},
+    tag_options: {type: [String], default: []},
+    tag_default_value: {type: String, default: ""},
+    organization_id: {type: String, default: "SYSTEM"}
 });
 
 const invite = new Schema({

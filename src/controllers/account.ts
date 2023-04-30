@@ -11,13 +11,11 @@ export const pingNode = async (req: any, res: Response) => {
         const organization = await Model.OrganizationDetails.findById(req.orgId).exec();
 
         if (!organization) return res.send({ messsage: "Error", details: "Cannot find organization" });
-        console.log({ organization })
         const { data } = await axios.get(`http://${organization.organization_ip}:${organization.organization_port}/ping`);
 
         if (data.message === "Done" && data.details === "pong") return res.send({ message: "Done", details: "pong" });
         else res.send({ message: "Error", details: "cannot ping" })
     } catch (error: any) {
-        console.log({ error })
         res.send({ message: "Error", details: error.message });
     }
 

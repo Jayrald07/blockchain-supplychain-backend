@@ -1,4 +1,4 @@
-import express from "express";
+import express, { NextFunction, Request } from "express";
 import dotenv from "dotenv";
 import { Contract, Gateway } from "@hyperledger/fabric-gateway";
 import { closeGRPCConnection, createAsset, getAllAssets, getAssetProvenance, isPasswordValid, readAssetByID, updateAsset } from "./src/utils";
@@ -10,13 +10,14 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import cors from "cors"
 import axios from "axios"
-import { approveChaincode, checkCommitReadiness, collectAndTransferCa, commitChaincode, initializeChaincode, installChaincode, setupCollectionConfig } from "./src/controllers/chaincode";
+import { approveChaincode, checkCommitReadiness, collectAndTransferCa, commitChaincode, initializeChaincode, installChaincode, performAction, setupCollectionConfig } from "./src/controllers/chaincode";
 import { validateJson } from "./src/controllers/validator";
 import { authenticateAccount, createOrganization, getOrganizations, pingNode } from "./src/controllers/account";
 import { Server, Socket } from "socket.io";
 import { createServer } from "http";
 import { IOServer } from "./src/socket";
 import { connectedOrganizations, inviteConnect, inviteResponse, invitesReceived, invitesSent } from "./src/controllers/channel";
+import models from "./src/models/index";
 
 dotenv.config();
 
@@ -30,6 +31,11 @@ const io = new Server(httpServer, {
 });
 
 const ioServer = new IOServer(io);
+
+app.use((req: any, _, next: NextFunction) => {
+    req.io = ioServer.io;
+    next();
+});
 
 app.use(cors({
     origin: "*"
@@ -49,55 +55,20 @@ app.use(ioServer.route)
 
 app.get("/ping", pingNode);
 
-app.post("/asset", async (req, res) => {
-    const { asset_name, tags, asset_description }: { asset_name: string, tags: any[], asset_description: string } = req.body;
-    let tag = null, tag_code = v4(), token = req.headers["authorization"]?.split(" ")[1];
 
-    try {
-        console.log(req.body)
-        const payload: any = jwt.verify(token as string, process.env.SECRET_KEY as string)
-
-        if (tags.length) {
-            for (let t of tags) {
-                t.tag_code = tag_code;
-                tag = new Model.Tag(t);
-                await tag?.save()
-            }
-        }
-
-        const asset = new Model.Asset({ asset_name, tag_code, asset_description, asset_uuid: v4().replaceAll("-", "") })
-        const response = await asset.save();
-
-        const org_asset = await Model.OrganizationAsset.findOne({ organization_details_id: { $eq: payload.organization_id as string } })
-
-        if (org_asset) {
-            await org_asset.updateOne({ $push: { asset_id: response._id } })
-        } else {
-            await new Model.OrganizationAsset({
-                organization_details_id: payload.organization_id,
-                asset_id: [response._id],
-            }).save();
-        }
-
-        res.send({ message: "asset created" })
-    } catch (e: any) {
-        res.send({ message: "Error", details: e.message })
-    }
-});
 
 app.post("/organization", createOrganization);
 
 app.post("/auth", authenticateAccount);
 
 app.get("/assets", async (req: any, res) => {
-
     try {
         const count = await Model.Asset.find({ isDelete: 0 }).count();
         const page = req.query.page
 
         if (page > Math.ceil(count / 10)) return res.send({ message: "out of bound" })
 
-        const assets = await Model.Asset.find({ isDelete: 0 }, { isDelete: 0, __v: 0 }).skip((parseInt(page) - 1) * 10).limit(10)
+        const assets = await Model.Asset.find({ isDelete: 0 }, { isDelete: 0, __v: 0 }).populate("origin", { organization_name: 1, _id: 0 }).skip((parseInt(page) - 1) * 10).limit(10)
 
         res.send({ page: parseInt(page), pageCount: Math.ceil(count / 10), assets, count })
 
@@ -131,6 +102,20 @@ app.get("/asset/:asset_id", async (req, res) => {
 
 })
 
+app.post("/asset", async (req: any, res) => {
+    const assetUuid = req.body.assetUuid;
+
+    try {
+        const asset = await models.Asset.find({ asset_uuid: assetUuid });
+        if (asset) res.send({ message: "Done", details: asset })
+        else res.send({ message: "Error", details: {} })
+    } catch (error: any) {
+        res.send({ message: "Error", details: error.message })
+    }
+
+
+})
+
 app.get("/tags/:tag_code", async (req, res) => {
     const { tag_code } = req.params;
 
@@ -139,6 +124,7 @@ app.get("/tags/:tag_code", async (req, res) => {
     res.send(tags);
 
 })
+
 
 app.put("/tag/:tag_id", async (req, res) => {
     const { tag_id } = req.params
@@ -160,34 +146,69 @@ app.put("/tag/:tag_id", async (req, res) => {
 
 })
 
-app.delete("/tag/:tag_id", async (req, res) => {
+app.delete("/tag/:tag_id", async (req: any, res) => {
     const { tag_id } = req.params;
 
-    const tag = await Model.Tag.findById(tag_id);
+    const tag = await Model.Tag.findOne({ _id: tag_id, organization_id: req.orgId });
 
-    if (!tag) return res.send({ message: "Tag is not existing" });
+    if (!tag) return res.send({ message: "Error", details: "Tag is not existing" });
 
     await tag.deleteOne();
 
-    res.send({ message: "Tag deleted!" });
-
+    res.send({ message: "Done", details: "Tag deleted!" });
 })
 
-app.post("/tag", async (req, res) => {
-    const { tag_code, tags } = req.body;
+app.post("/tag", async (req: any, res) => {
+    const { tags } = req.body;
+    try {
+        for (let tag of tags) {
 
-    for (let tag of tags) {
-        const response = new Model.Tag({
-            tag_key: tag.tag_key,
-            tag_value: tag.tag_value,
-            tag_code
-        });
-        await response.save();
+            if (!tag.tagId) {
+                const tagOne = await Model.Tag.findOne(({ tag_key: tag.tag_key, organization_id: req.orgId }));
+
+                if (tagOne) return res.send({ message: "Error", details: "Tag is already existing" });
+
+                const response = new Model.Tag({
+                    tag_key: tag.tag_key,
+                    tag_type: tag.tag_type,
+                    tag_options: tag.tag_options,
+                    tag_default_value: tag.tag_default_value,
+                    organization_id: req.orgId
+                });
+                await response.save();
+            } else {
+                const _tag = await Model.Tag.findById(tag.tagId);
+                if (_tag) {
+                    await _tag.updateOne({
+                        tag_key: tag.tag_key,
+                        tag_type: tag.tag_type,
+                        tag_options: tag.tag_options,
+                        tag_default_value: tag.tag_default_value
+                    })
+                }
+            }
+
+        }
+
+        res.send({ message: "Done", details: "Tags saved" });
+    } catch (error: any) {
+        res.send({ message: "Error", details: error.message })
     }
 
-    res.send({ message: "Tags created" });
-
 })
+
+app.get("/tag", async (req: any, res) => {
+
+    const orgId = req.orgId as string;
+
+    const tags = await Model.Tag.find({ organization_id: { $in: ["SYSTEM", orgId] } }, { __v: 0 });
+
+    res.send({
+        message: "Done",
+        details: tags
+    })
+
+});
 
 app.delete("/asset/:asset_id", async (req, res) => {
     const { asset_id } = req.params;
@@ -232,7 +253,7 @@ app.get("/search/asset/:name", async (req: any, res) => {
     const { name } = req.params
 
 
-    const asset = await Model.Asset.find({ asset_name: new RegExp((name === "all" ? "" : name)), isDelete: 0 }, { __v: 0, isDelete: 0 });
+    const asset = await Model.Asset.find({ asset_name: new RegExp((name === "all" ? "" : name)), isDelete: 0 }, { __v: 0, isDelete: 0 }).populate("origin", { organization_name: 1, _id: 0 });
 
     res.json({ asset })
 
@@ -383,12 +404,11 @@ app.post("/channel", async (req, res) => {
 
 app.get("/channels", async (req: any, res) => {
 
-    const { orgName, host, port } = req.query;
-    console.log(req?.orgId)
-
     try {
 
-        const channel = await axios.get(`http://${host}:${port}/channels?orgName=${orgName}`);
+        const organization = await models.OrganizationDetails.findById(req.orgId);
+
+        const channel = await axios.get(`http://${organization?.organization_ip}:${organization?.organization_port}/channels?orgName=${organization?.organization_name}`);
 
         res.send({ message: "Done", details: channel.data });
 
@@ -483,20 +503,6 @@ app.post("/joinOrderer", async (req, res) => {
 
 })
 
-app.post("/setup-collections-config", setupCollectionConfig);
-
-app.post("/installchaincode", installChaincode);
-
-app.post("/approvechaincode", approveChaincode);
-
-app.post("/collectandtransferca", collectAndTransferCa)
-
-app.post("/checkcommitreadiness", checkCommitReadiness);
-
-app.post("/commitchaincode", commitChaincode);
-
-app.post("/initializechaincode", initializeChaincode);
-
 app.get("/organizations", getOrganizations);
 
 app.get("/invitesReceived", invitesReceived)
@@ -508,6 +514,8 @@ app.put("/inviteResponse", inviteResponse);
 app.put("/inviteConnect", inviteConnect);
 
 app.get("/connectedOrganizations", connectedOrganizations);
+
+app.post("/chaincode", performAction)
 
 mongoose.connect(`mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@supply-chain.9tknr9d.mongodb.net/?retryWrites=true&w=majority`).then(() => {
     console.log("Connected to database")
