@@ -427,7 +427,7 @@ export const transferAsset = async (body: any, node: AxiosInstance) => {
         body.transactionId = v4().replaceAll("-", "");
         const { data } = await node.post("/transferAsset", body)
 
-        return { message: "Done", details: data }
+        return { message: "Done", details: JSON.parse(data).details }
     } catch (err: any) {
         return { message: "Error", details: err.message };
     }

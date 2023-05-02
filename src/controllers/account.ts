@@ -4,6 +4,7 @@ import Model from "../models";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import axios from "axios";
+import { generateKeyPairSync } from "crypto"
 
 export const pingNode = async (req: any, res: Response) => {
 
