@@ -9,7 +9,10 @@ export const invitesReceived = async (req: any, res: Response) => {
     const invites = await models.Invite.find({
         invited_organization_id: req.orgId,
         status: { $in: ["INVITED", "ACCEPTED"] }
-    }).populate("organization_id", "organization_name organization_type_id").exec();
+    }).populate({
+        path: 'organization_id',
+        populate: { path: 'organization_type_id' }
+    }).exec();
 
     res.send({ message: "Done", details: invites })
 }
@@ -18,7 +21,10 @@ export const invitesSent = async (req: any, res: Response) => {
     const invites = await models.Invite.find({
         organization_id: req.orgId,
         status: { $in: ["INVITED", "ACCEPTED"] }
-    }).populate("invited_organization_id", "organization_name organization_type_id").exec();
+    }).populate({
+        path: 'invited_organization_id',
+        populate: { path: 'organization_type_id' }
+    }).exec();
 
     res.send({ message: "Done", details: invites })
 }
@@ -43,8 +49,6 @@ export const inviteConnect = async (req: any, res: Response) => {
 
         const invite = await models.Invite.findById(inviteId).populate("organization_id").populate("invited_organization_id").exec();
 
-        console.log(invite)
-
         if (!invite) return res.send({ message: "Error", details: "Cannot find invite" });
 
         const orgName = (invite.organization_id as any)?.organization_name;
@@ -52,28 +56,33 @@ export const inviteConnect = async (req: any, res: Response) => {
         const port = (invite.organization_id as any)?.organization_port;
         const channelToMSP = (invite.invited_organization_id as any)?.organization_name;
         const channelId = `${orgName}${channelToMSP}`;
+        const orgDetail = await models.OrganizationDetails.findById(req.orgId);
 
         io.in(req.orgId).emit("p2p", {
             message: `Creating channel ${channelId}`,
             state: 0
         });
-        const channel = await axios.post(`http://${host}:${port}/channel`, {
+        const channel = await axios.post(`https://${host}:${port}/channel`, {
             channelId,
             orgName,
-            channelToMSP
+            channelToMSP,
+            host
         })
+
+        console.log({ channel: channel.data })
 
         io.in(req.orgId).emit("p2p", {
             message: `Channel ${channelId} created`,
             state: 1
         });
+
         if (channel.data.message !== "Done") throw new Error(channel.data.details);
 
-        const orderer = await joinOrder({ channelId, orgName, otherOrgName: channelToMSP, creatorHost: `${host}:${port}`, receiverHost: `${(invite.invited_organization_id as any).organization_ip}:${(invite.invited_organization_id as any).organization_port}`, orgType: "ORDERER", io, orgId: req.orgId });
+        const orderer = await joinOrder({ channelId, orgName, otherOrgName: channelToMSP, creatorHost: `${host}:${port}`, receiverHost: `${(invite.invited_organization_id as any).organization_ip}:${(invite.invited_organization_id as any).organization_port}`, orgType: "ORDERER", io, orgId: req.orgId, host, pkey: orgDetail?.organization_pubkey, pvkey: orgDetail?.organization_privkey });
 
         console.log({ orderer })
 
-        const peer = await joinOrg({ channelId, orgName, otherOrgName: channelToMSP, creatorHost: `${host}:${port}`, receiverHost: `${(invite.invited_organization_id as any).organization_ip}:${(invite.invited_organization_id as any).organization_port}`, orgType: "PEER", io, orgId: req.orgId });
+        const peer = await joinOrg({ channelId, orgName, otherOrgName: channelToMSP, creatorHost: `${host}:${port}`, receiverHost: `${(invite.invited_organization_id as any).organization_ip}:${(invite.invited_organization_id as any).organization_port}`, orgType: "PEER", io, orgId: req.orgId, host, pkey: orgDetail?.organization_pubkey, pvkey: orgDetail?.organization_privkey });
 
         console.log({ peer });
 
@@ -98,8 +107,6 @@ export const inviteConnect = async (req: any, res: Response) => {
             io,
             orgId: req.orgId
         });
-
-        console.log({ chaincode })
 
     } catch (error: any) {
         res.send({ message: "Error", details: error.message })

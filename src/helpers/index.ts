@@ -2,6 +2,19 @@ import axios, { Axios, AxiosInstance } from "axios";
 import { approveChaincode, checkCommitReadiness, collectAndTransferCa, commitChaincode, initializeChaincode, installChaincode, setupCollectionConfig } from "../controllers/chaincode";
 import { v4 } from "uuid";
 import models from "../models";
+import { readFileSync } from "fs";
+import { publicDecrypt } from "crypto";
+import { decryptAsymData, decryptSymData } from "../utils/general";
+import { Socket } from "socket.io";
+import formData from "form-data";
+import Mailgun from "mailgun.js";
+import dotenv from "dotenv";
+import jwt from "jsonwebtoken";
+
+dotenv.config();
+
+const mailgun = new Mailgun(formData);
+const mg = mailgun.client({ username: 'api', key: process.env.MAILGUN_API_KEY as string })
 
 const sleep = (ms: number) => {
     return new Promise((resolve, _) => {
@@ -12,16 +25,17 @@ const sleep = (ms: number) => {
 }
 
 export const joinOrder = async (body: any) => {
-    const { orgName, otherOrgName, channelId, creatorHost, receiverHost, orgType, io, orgId } = body;
-
+    const { orgName, otherOrgName, channelId, creatorHost, receiverHost, orgType, io, orgId, host, pkey, pvkey } = body;
     try {
         io.in(orgId).emit("p2p", {
             message: `Getting channel "${channelId}" configuration`,
             state: 0
         });
-        const { data } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+
+        const { data } = await axios.post(`https://${creatorHost}/getChannelConfig`, {
             orgName,
-            channelId
+            channelId,
+            host: creatorHost.split(":")[0]
         })
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration received`,
@@ -32,13 +46,16 @@ export const joinOrder = async (body: any) => {
             message: `Load channel "${channelId}" configuration`,
             state: 0
         });
-        const { data: result } = await axios.post(`http://${receiverHost}/receiveChannelConfig`, {
+        console.log({ data })
+
+        const { data: result } = await axios.post(`https://${receiverHost}/receiveChannelConfig`, {
             channelConfig: data.details.config.data,
             ordererTlsCa: data.details.ordererTlsCa.data,
             orgName: otherOrgName,
             otherOrgName: orgName,
             channelId,
-            orgType
+            orgType,
+            host: receiverHost.split(":")[0]
         })
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration loaded`,
@@ -49,11 +66,12 @@ export const joinOrder = async (body: any) => {
             message: `Sign channel "${channelId}" configuration updates`,
             state: 0
         });
-        const { data: signed } = await axios.post(`http://${creatorHost}/signAndUpdateChannel`, {
+        const { data: signed } = await axios.post(`https://${creatorHost}/signAndUpdateChannel`, {
             orgName,
             channelId,
             updateBlock: result.details.block.data,
-            orgType
+            orgType,
+            host: creatorHost.split(":")[0]
         })
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration has been signed and updated`,
@@ -64,9 +82,10 @@ export const joinOrder = async (body: any) => {
             message: `Getting channel "${channelId}" updated configuration`,
             state: 0
         });
-        const { data: config } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+        const { data: config } = await axios.post(`https://${creatorHost}/getChannelConfig`, {
             orgName,
-            channelId
+            channelId,
+            host: creatorHost.split(":")[0]
         })
         io.in(orgId).emit("p2p", {
             message: `Update channel "${channelId}" configuration received`,
@@ -77,10 +96,11 @@ export const joinOrder = async (body: any) => {
             message: `Joining your orderer in consensus channel "${channelId}"`,
             state: 0
         });
-        const { data: joined } = await axios.post(`http://${receiverHost}/joinOrdererNow`, {
+        const { data: joined } = await axios.post(`https://${receiverHost}/joinOrdererNow`, {
             channelId,
             orgName: otherOrgName,
-            channelConfig: config.details.config.data,
+            channelConfig: data.details.config.data,
+            host: receiverHost.split(":")[0]
         })
         io.in(orgId).emit("p2p", {
             message: `Orderer has joined channel "${channelId}"`,
@@ -94,7 +114,7 @@ export const joinOrder = async (body: any) => {
 }
 
 export const joinOrg = async (body: any): Promise<any> => {
-    const { orgName, otherOrgName, channelId, creatorHost, receiverHost, orgType, io, orgId } = body;
+    const { orgName, otherOrgName, channelId, creatorHost, receiverHost, orgType, io, orgId, host, pkey, pvkey } = body;
 
     try {
 
@@ -102,10 +122,12 @@ export const joinOrg = async (body: any): Promise<any> => {
             message: `Getting channel "${channelId}" configuration`,
             state: 0
         });
-        const { data } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+        const { data } = await axios.post(`https://${creatorHost}/getChannelConfig`, {
             orgName,
-            channelId
+            channelId,
+            host: creatorHost.split(":")[0]
         })
+        console.log({ message: "Get", data })
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration received`,
             state: 1
@@ -115,14 +137,16 @@ export const joinOrg = async (body: any): Promise<any> => {
             message: `Load channel "${channelId}" configuration`,
             state: 0
         });
-        const { data: result } = await axios.post(`http://${receiverHost}/receiveChannelConfig`, {
+        const { data: result } = await axios.post(`https://${receiverHost}/receiveChannelConfig`, {
             channelConfig: data.details.config.data,
             ordererTlsCa: data.details.ordererTlsCa.data,
             orgName: otherOrgName,
             otherOrgName: orgName,
             channelId,
-            orgType
+            orgType,
+            host: receiverHost.split(":")[0]
         })
+        console.log({ message: "channel", result })
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration loaded`,
             state: 1
@@ -132,12 +156,15 @@ export const joinOrg = async (body: any): Promise<any> => {
             message: `Sign channel "${channelId}" configuration updates`,
             state: 0
         });
-        const { data: signed } = await axios.post(`http://${creatorHost}/signAndUpdateChannel`, {
+        const { data: signed } = await axios.post(`https://${creatorHost}/signAndUpdateChannel`, {
             orgName,
             channelId,
             updateBlock: result.details.block.data,
-            orgType
+            orgType,
+            host: creatorHost.split(":")[0]
         })
+        console.log({ message: "sign channel", signed })
+
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration has been signed and updated`,
             state: 1
@@ -147,14 +174,18 @@ export const joinOrg = async (body: any): Promise<any> => {
             message: `Joining your peer in channel "${channelId}"`,
             state: 0
         });
-        const { data: joined } = await axios.post(`http://${receiverHost}/joinChannelNow`, {
+        const { data: joined } = await axios.post(`https://${receiverHost}/joinChannelNow`, {
             channelId,
             ordererGeneralPort: signed.details.ordererGeneralPort,
             otherOrgName: orgName,
             orgName: otherOrgName,
             updateBlock: signed.details.block.data,
             ordererTlsCa: data.details.ordererTlsCa.data,
+            host: receiverHost.split(":")[0],
+            otherHost: creatorHost.split(":")[0]
         })
+        console.log({ message: "join peer", joined })
+
         io.in(orgId).emit("p2p", {
             message: `Peer has joined channel "${channelId}"`,
             state: 1
@@ -182,6 +213,7 @@ export const setupChaincode = async (body: any) => {
             message: `Setting up private state`,
             state: 0
         });
+
         const setupConfig = await setupCollectionConfig({
             msps: [`${primary.orgName}MSP`, `${secondary.orgName}MSP`],
             hosts: [
@@ -307,7 +339,7 @@ export const setupChaincode = async (body: any) => {
             channel: channelId,
             externals: [
                 {
-                    host: secondary.orgName,
+                    host: secondary.host,
                     port: secondary.peerPort,
                 }
             ]
@@ -330,7 +362,7 @@ export const setupChaincode = async (body: any) => {
             channel: channelId,
             externals: [
                 {
-                    host: secondary.orgName,
+                    host: secondary.host,
                     port: secondary.peerPort,
                 }
             ]
@@ -480,5 +512,59 @@ export const getLogs = async (body: any, node: AxiosInstance) => {
 
     } catch (err: any) {
         return { message: "Error", details: err.message };
+    }
+}
+
+export const notify = async (io: Socket, event: string, data: any, organizationId: string, title: string, description: string) => {
+    try {
+
+        const notif = new models.Notification({
+            organization_id: organizationId,
+            title,
+            description
+        });
+
+        const notifSave = await notif.save();
+
+        if (!notifSave) return { message: "Error", details: 'Error Saving' };
+
+        io.in(organizationId).emit(event, data);
+        io.in(organizationId).emit('notif', { action: 'refetch' })
+
+        return { message: "Done", details: "Organization notified" }
+
+    } catch (error: any) {
+
+        return { message: "Error", details: error.message }
+
+    }
+}
+
+export const sendMail = async (email: string, template: string, variables: any) => {
+    try {
+        const msg = await mg.messages.create('chainblockdirect.live', {
+            from: 'ChainDirect <no-reply@chainblockdirect.live>',
+            to: [email],
+            subject: 'Email Verification',
+            template: template,
+            't:variables': JSON.stringify(variables)
+        })
+        return { message: "Done", details: msg };
+    } catch (error: any) {
+        return { message: "Error", details: error.message }
+    }
+}
+
+export const validateJwt = async (token: string) => {
+    try {
+
+        let details = jwt.verify(token, process.env.SECRET_KEY as string);
+
+        return { message: 'Done', details: 'Valid' }
+
+    } catch (error: any) {
+
+        return { message: 'Error', details: error.message };
+
     }
 }

@@ -3,6 +3,7 @@ import jwt from "jsonwebtoken";
 import express from "express";
 import models from "../models";
 import moment from "moment";
+import { notify } from "../helpers";
 
 
 export class IOServer {
@@ -24,14 +25,16 @@ export class IOServer {
 
             let invitation = await models.Invite.findOne({
                 organization_id: req.orgId,
-                invited_organization_id: invitedId
+                invited_organization_id: invitedId,
+                status: { $nin: ["REJECTED"] }
             });
 
             if (invitation) return res.send({ message: "Error", details: "Already sent invitation" })
 
             invitation = await models.Invite.findOne({
                 organization_id: invitedId,
-                invited_organization_id: req.orgId
+                invited_organization_id: req.orgId,
+                status: { $nin: ["REJECTED"] }
             });
 
             if (invitation) return res.send({ message: "Error", details: "Already sent invitation" })
@@ -45,6 +48,11 @@ export class IOServer {
             const result = await invitation.save();
 
             if (result) {
+
+                const org = await models.OrganizationDetails.findById(req.orgId);
+
+                await notify(req.io, "channelInvite", { action: 'invited' }, invitedId, "Connection Request", `${org?.organization_name} sent connection request`);
+
                 this.io.in(invitedId).emit("channelInvite", true);
                 res.send({ message: "Done", details: "Invitation sent!" })
             } else res.send({ message: "Error", details: 'Cannot create invitation.' })

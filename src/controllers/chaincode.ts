@@ -14,7 +14,7 @@ export const setupCollectionConfig = async (body: any) => {
     try {
 
         const all = await Promise.all(hosts.map((host: any) => {
-            return axios.post(`http://${host.host}:${host.port}/setup-collections-config`, {
+            return axios.post(`https://${host.host}:${host.port}/setup-collections-config`, {
                 msps
             });
         }));
@@ -34,9 +34,10 @@ export const installChaincode = async (body: any) => {
 
     try {
         const all = await Promise.all(hosts.map((host: any) => {
-            return axios.post(`http://${host.host}:${host.port}/installchaincode`, {
+            return axios.post(`https://${host.host}:${host.port}/installchaincode`, {
                 channel: host.channel,
-                hostname: host.hostname
+                hostname: host.host,
+                orgName: host.hostname
             });
         }));
 
@@ -55,9 +56,10 @@ export const approveChaincode = async (body: any) => {
 
     try {
         const all = await Promise.all(hosts.map((host: any) => {
-            return axios.post(`http://${host.host}:${host.port}/approvechaincode`, {
+            return axios.post(`https://${host.host}:${host.port}/approvechaincode`, {
                 channel: host.channel,
-                hostname: host.hostname
+                hostname: host.host,
+                orgName: host.hostname
             });
         }));
 
@@ -77,14 +79,14 @@ export const collectAndTransferCa = async (body: any) => {
     try {
 
         const all = await Promise.all(hosts.map((host: any) => {
-            return axios.post(`http://${host.host}:${host.port}/collectandtransferca`, {
+            return axios.post(`https://${host.host}:${host.port}/collectandtransferca`, {
                 hostname: host.hostname
             });
         }));
 
         const cas = all.map(item => item.data);
 
-        const saved = await axios.post(`http://${host}:${port}/savetemporaryca`, {
+        const saved = await axios.post(`https://${host}:${port}/savetemporaryca`, {
             cas: cas[0]
         });
 
@@ -104,9 +106,10 @@ export const checkCommitReadiness = async (body: any) => {
     console.log(JSON.stringify({ body }))
 
     try {
-        const chaincode = await axios.post(`http://${host}:${port}/checkcommitreadiness`, {
+        const chaincode = await axios.post(`https://${host}:${port}/checkcommitreadiness`, {
             channel,
-            hostname
+            hostname: host,
+            orgName: hostname
         });
         return { message: "Done", details: chaincode.data };
 
@@ -122,9 +125,10 @@ export const commitChaincode = async (body: any) => {
     console.log(JSON.stringify({ body }))
 
     try {
-        const chaincode = await axios.post(`http://${host}:${port}/commitchaincode`, {
+        const chaincode = await axios.post(`https://${host}:${port}/commitchaincode`, {
             channel,
-            hostname,
+            hostname: host,
+            orgName: hostname,
             externals
         });
         return { message: "Done", details: chaincode.data };
@@ -140,9 +144,10 @@ export const initializeChaincode = async (body: any) => {
     console.log(JSON.stringify({ body }))
 
     try {
-        const chaincode = await axios.post(`http://${host}:${port}/initializechaincode`, {
+        const chaincode = await axios.post(`https://${host}:${port}/initializechaincode`, {
             channel,
-            hostname,
+            hostname: host,
+            orgName: hostname,
             externals
         });
 
@@ -163,7 +168,7 @@ export const performAction = async (req: any, res: Response) => {
         const organization = await models.OrganizationDetails.findById(req.orgId, { organization_ip: 1, organization_port: 1, organization_name: 1 });
 
 
-        const node = axios.create({ baseURL: `http://${organization?.organization_ip}:${organization?.organization_port}` });
+        const node = axios.create({ baseURL: `https://${organization?.organization_ip}:${organization?.organization_port}` });
 
         switch (action) {
             case "CREATE":

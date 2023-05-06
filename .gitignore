@@ -17,3 +17,5 @@ dist
 *.crt
 *.csr
 *.key
+
+*.pem

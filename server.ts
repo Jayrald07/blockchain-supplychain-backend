@@ -12,18 +12,24 @@ import cors from "cors"
 import axios from "axios"
 import { approveChaincode, checkCommitReadiness, collectAndTransferCa, commitChaincode, initializeChaincode, installChaincode, performAction, setupCollectionConfig } from "./src/controllers/chaincode";
 import { validateJson } from "./src/controllers/validator";
-import { authenticateAccount, createOrganization, getOrganizations, pingNode } from "./src/controllers/account";
+import { acceptInviteOu, authenticateAccount, cancelInviteOu, createOrganization, getEmailValidation, getInviteOu, getNotifs, getOrganizations, inviteOu, pingNode, rejectCancelInviteOu, rejectInviteOu, sendEmailVerification, switchToOu, validateEmailVerification, viewedNotifs } from "./src/controllers/account";
 import { Server, Socket } from "socket.io";
-import { createServer } from "http";
+import { createServer } from "https";
 import { IOServer } from "./src/socket";
 import { connectedOrganizations, inviteConnect, inviteResponse, invitesReceived, invitesSent } from "./src/controllers/channel";
 import models from "./src/models/index";
+import { createKeys, encryptSymData } from "./src/utils/general";
+import { readFileSync } from "fs";
+import { body, query } from "express-validator";
 
 dotenv.config();
 
 const app = express();
 
-const httpServer = createServer(app);
+const httpServer = createServer({
+    key: readFileSync('privkey.pem'),
+    cert: readFileSync('fullchain.pem')
+}, app);
 const io = new Server(httpServer, {
     cors: {
         origin: "*"
@@ -230,22 +236,34 @@ app.get("/account", async (req: any, res) => {
 
     const organization = await Model.OrganizationDetails.findById(payload.organization_id, { __v: 0 }).populate("organization_type_id", "-_id")
 
-    res.send({ ...organization?.toJSON(), username: payload.username });
+    const emailStatus = await Model.Verification.findOne({ organization_id: req.orgId });
+
+    res.send({ ...organization?.toJSON(), username: payload.username, emailStatus: emailStatus?.status });
 
 });
 
 app.put("/account", async (req: any, res) => {
-    const token = req.headers.authorization.split(" ")[1];
 
-    const payload: any = jwt.decode(token);
+    try {
 
-    const organization = await Model.OrganizationDetails.findById(payload.organization_id)
+        const token = req.headers.authorization.split(" ")[1];
 
-    if (!organization) return res.send({ message: "Account is not existing." });
+        const payload: any = jwt.decode(token);
 
-    await organization.updateOne(req.body);
+        const organization = await Model.OrganizationDetails.findById(payload.organization_id)
 
-    res.send({ message: "Account updated!" });
+        if (!organization) return res.send({ message: "Account is not existing." });
+
+        await organization.updateOne(req.body);
+
+        res.send({ message: "Done", details: "Account updated!" });
+
+    } catch (error: any) {
+
+        res.send({ message: 'Error', details: error.message });
+
+    }
+
 
 });
 
@@ -271,6 +289,7 @@ app.post("/external", async (req: any, res) => {
     try {
 
         const checkName = await Model.Organization.findOne({ organization_username: { $eq: username } });
+        const { publicKey, privateKey } = await createKeys(organization_name, `${organization_name}@chaindirect.com`);
 
         if (checkName) return res.send({ message: "Error", details: "Username already taken" });
 
@@ -284,6 +303,8 @@ app.post("/external", async (req: any, res) => {
         const details = new Model.OrganizationDetails({
             organization_name,
             organization_type_id: organization_type,
+            organization_privkey: await encryptSymData(privateKey),
+            organization_pubkey: await encryptSymData(publicKey),
         })
 
         let detailsResponse = await details.save();
@@ -316,6 +337,7 @@ app.post("/external", async (req: any, res) => {
 
 
     } catch (err: any) {
+        console.log(err)
         res.send({ message: "Error", details: err.message });
     }
 
@@ -358,7 +380,7 @@ app.post("/createConnection", async (req: any, res) => {
     const { ip, port, organization_id } = req.body;
     console.log(req.body)
     try {
-        const { data } = await axios.get(`http://${ip}:${port}/ping`);
+        const { data } = await axios.get(`https://${ip}:${port}/ping`);
 
         if (data.message !== "Done" && data.details !== "pong") return res.send({ message: "Error", details: "Cannot ping the address and port provided" });
 
@@ -388,7 +410,7 @@ app.post("/channel", async (req, res) => {
 
     try {
 
-        const channel = await axios.post(`http://${host}:${port}/channel`, {
+        const channel = await axios.post(`https://${host}:${port}/channel`, {
             channelId,
             orgName,
             channelToMSP
@@ -408,12 +430,12 @@ app.get("/channels", async (req: any, res) => {
 
         const organization = await models.OrganizationDetails.findById(req.orgId);
 
-        const channel = await axios.get(`http://${organization?.organization_ip}:${organization?.organization_port}/channels?orgName=${organization?.organization_name}`);
+        const channel = await axios.get(`https://${organization?.organization_ip}:${organization?.organization_port}/channels?orgName=${organization?.organization_name}&host=${organization?.organization_ip}`);
 
         res.send({ message: "Done", details: channel.data });
 
     } catch (error: any) {
-        res.send({ message: "Done", details: error.message })
+        res.send({ message: "Error", details: error.message })
     }
 
 })
@@ -422,12 +444,12 @@ app.post("/joinOrg", async (req: any, res) => {
     const { orgName, otherOrgName, channelId, creatorHost, receiverHost, orgType } = req.body;
 
     try {
-        const { data } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+        const { data } = await axios.post(`https://${creatorHost}/getChannelConfig`, {
             orgName,
             channelId
         })
         console.log(".")
-        const { data: result } = await axios.post(`http://${receiverHost}/receiveChannelConfig`, {
+        const { data: result } = await axios.post(`https://${receiverHost}/receiveChannelConfig`, {
             channelConfig: data.details.config.data,
             ordererTlsCa: data.details.ordererTlsCa.data,
             orgName: otherOrgName,
@@ -436,14 +458,14 @@ app.post("/joinOrg", async (req: any, res) => {
             orgType
         })
 
-        const { data: signed } = await axios.post(`http://${creatorHost}/signAndUpdateChannel`, {
+        const { data: signed } = await axios.post(`https://${creatorHost}/signAndUpdateChannel`, {
             orgName,
             channelId,
             updateBlock: result.details.block.data,
             orgType
         })
 
-        const { data: joined } = await axios.post(`http://${receiverHost}/joinChannelNow`, {
+        const { data: joined } = await axios.post(`https://${receiverHost}/joinChannelNow`, {
             channelId,
             ordererGeneralPort: signed.details.ordererGeneralPort,
             otherOrgName: orgName,
@@ -464,12 +486,12 @@ app.post("/joinOrderer", async (req, res) => {
     const { orgName, otherOrgName, channelId, creatorHost, receiverHost, orgType } = req.body;
 
     try {
-        const { data } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+        const { data } = await axios.post(`https://${creatorHost}/getChannelConfig`, {
             orgName,
             channelId
         })
         console.log({ data })
-        const { data: result } = await axios.post(`http://${receiverHost}/receiveChannelConfig`, {
+        const { data: result } = await axios.post(`https://${receiverHost}/receiveChannelConfig`, {
             channelConfig: data.details.config.data,
             ordererTlsCa: data.details.ordererTlsCa.data,
             orgName: otherOrgName,
@@ -478,19 +500,19 @@ app.post("/joinOrderer", async (req, res) => {
             orgType
         })
 
-        const { data: signed } = await axios.post(`http://${creatorHost}/signAndUpdateChannel`, {
+        const { data: signed } = await axios.post(`https://${creatorHost}/signAndUpdateChannel`, {
             orgName,
             channelId,
             updateBlock: result.details.block.data,
             orgType
         })
 
-        const { data: config } = await axios.post(`http://${creatorHost}/getChannelConfig`, {
+        const { data: config } = await axios.post(`https://${creatorHost}/getChannelConfig`, {
             orgName,
             channelId
         })
 
-        const { data: joined } = await axios.post(`http://${receiverHost}/joinOrdererNow`, {
+        const { data: joined } = await axios.post(`https://${receiverHost}/joinOrdererNow`, {
             channelId,
             orgName: otherOrgName,
             channelConfig: config.details.config.data,
@@ -517,10 +539,34 @@ app.get("/connectedOrganizations", connectedOrganizations);
 
 app.post("/chaincode", performAction)
 
+app.post("/inviteOu", inviteOu);
+
+app.post("/getInviteOu", getInviteOu);
+
+app.post("/acceptInviteOu", acceptInviteOu);
+
+app.post("/rejectCancelInviteOu", rejectCancelInviteOu)
+
+app.post("/cancelInviteOu", cancelInviteOu);
+
+app.post("/rejectInviteOu", rejectInviteOu)
+
+app.post("/switchToOu", switchToOu)
+
+app.post("/getNotifs", getNotifs)
+
+app.post("/viewedNotifs", viewedNotifs)
+
+app.post("/sendEmailVerification", body("email").notEmpty().isEmail().escape(), sendEmailVerification)
+
+app.post("/getEmailVerification", body("token").notEmpty(), getEmailValidation);
+
+app.post("/validateEmailVerification", body("username").notEmpty(), body("password").notEmpty(), body("token").notEmpty(), validateEmailVerification);
+
 mongoose.connect(`mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@supply-chain.9tknr9d.mongodb.net/?retryWrites=true&w=majority`).then(() => {
     console.log("Connected to database")
-    httpServer.listen(process.env.PORT || 8081, async () => {
-        console.log(`Listening to port ${process.env.PORT || 8081}`);
+    httpServer.listen(process.env.PORT || 443, async () => {
+        console.log(`Listening to port ${process.env.PORT || 443}`);
     })
 }).catch((e) => {
     console.log(e);
