@@ -274,9 +274,13 @@ export const getNotifs = async (req: any, res: any) => {
 
     try {
 
-        const notifs = await Model.Notification.find({ organization_id: req.orgId, viewed: { $in: req.body.viewed } }).limit(req.body.limit).sort({ createdAt: -1 })
+        const notifs = await Model.Notification.find({ organization_id: req.orgId, viewed: { $in: req.body.viewed } })
 
-        res.send({ message: "Done", details: notifs })
+        let length = notifs.length;
+
+        let _notifDetails = await Model.Notification.find({ organization_id: req.orgId, viewed: { $in: req.body.viewed } }).skip(req.body.skip).limit(req.body.limit).sort({ createdAt: -1 })
+
+        res.send({ message: "Done", details: { length, notifs: _notifDetails } })
 
     } catch (error: any) {
         res.send({ message: "Error", details: error.message })
@@ -335,11 +339,11 @@ export const sendEmailVerification = async (req: any, res: any) => {
 
                 await verify.updateOne({ $set: { token } });
 
-                verificationLink = `https://chainblockdirect.live/email-verification?token=${token}`
+                verificationLink = `${process.env.FRONTEND_URL}/email-verification?token=${token}`
 
             } else {
 
-                verificationLink = `https://chainblockdirect.live/email-verification?token=${verify.token}`
+                verificationLink = `${process.env.FRONTEND_URL}/email-verification?token=${verify.token}`
 
             }
 
