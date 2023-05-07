@@ -37,7 +37,8 @@
         "moment": "^2.29.4",
         "mongoose": "^6.7.3",
         "openpgp": "^5.8.0",
-        "qrcode": "^1.5.1",
+        "puppeteer": "^20.1.1",
+        "qrcode": "^1.5.3",
         "socket.io": "^4.6.1",
         "socket.io-client": "^4.6.1",
         "uuid": "^9.0.0"

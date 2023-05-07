@@ -10,6 +10,7 @@ import formData from "form-data";
 import Mailgun from "mailgun.js";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
+import puppeteer from "puppeteer"
 
 dotenv.config();
 
@@ -395,8 +396,9 @@ export const createAsset = async (body: any, node: AxiosInstance) => {
 
         body.assetId = response.asset_uuid
         body.channelId = channelId
-
+        console.log({ body })
         const { data } = await node.post("/createAsset", body)
+        console.log(data);
         return { message: "Done", details: JSON.parse(data) }
     } catch (e: any) {
         return { message: "Error", details: e.message };
@@ -565,6 +567,28 @@ export const validateJwt = async (token: string) => {
     } catch (error: any) {
 
         return { message: 'Error', details: error.message };
+
+    }
+}
+
+export const generatePdf = async (html: string) => {
+    try {
+
+        const browser = await puppeteer.launch({
+            headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        const page = await browser.newPage();
+
+        await page.setContent(html);
+        const pdf = await page.pdf({ format: 'A4' });
+
+        await browser.close();
+
+        return { message: "Done", details: pdf.toString("base64") };
+
+    } catch (error: any) {
+
+        return { message: "Error", details: error.message }
 
     }
 }

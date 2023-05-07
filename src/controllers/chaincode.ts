@@ -174,40 +174,50 @@ export const performAction = async (req: any, res: Response) => {
             case "CREATE":
                 args.orgName = organization?.organization_name;
                 args.orgId = req.orgId;
+                args.host = organization?.organization_ip
                 data = await createAsset(args, node);
+                console.log({ data })
                 break;
             case "ASSETS":
                 args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
                 data = await getAssets(args, node);
                 console.log(data)
                 break;
             case "READ":
                 args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
                 data = await readAsset(args, node);
                 break;
             case "READ_COLLECTION":
                 args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
                 data = await readCollection(args, node);
                 break;
             case "TRANSFER":
                 args.orgName = organization?.organization_name;
                 args.newOwnerMSP = `${args.channelId.replaceAll(args.orgName, '')}MSP`;
+                args.host = organization?.organization_ip
                 data = await transferAsset(args, node);
                 break;
             case "ACCEPT":
                 args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
                 data = await acceptAsset(args, node);
                 break;
             case "TRANSFER_NOW":
                 args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
                 data = await transferNow(args, node);
                 break;
             case "OWN_ASSET":
                 args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
                 data = await ownAsset(args, node);
                 break;
             case "LOGS":
                 args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
                 args.orgId = req.orgId
                 data = await getLogs(args, node);
                 break;

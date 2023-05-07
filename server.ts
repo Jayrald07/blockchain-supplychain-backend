@@ -21,6 +21,7 @@ import models from "./src/models/index";
 import { createKeys, encryptSymData } from "./src/utils/general";
 import { readFileSync } from "fs";
 import { body, query } from "express-validator";
+import { generateQr } from "./src/controllers/generators";
 
 dotenv.config();
 
@@ -562,6 +563,8 @@ app.post("/sendEmailVerification", body("email").notEmpty().isEmail().escape(), 
 app.post("/getEmailVerification", body("token").notEmpty(), getEmailValidation);
 
 app.post("/validateEmailVerification", body("username").notEmpty(), body("password").notEmpty(), body("token").notEmpty(), validateEmailVerification);
+
+app.post("/generateQr", generateQr);
 
 mongoose.connect(`mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@supply-chain.9tknr9d.mongodb.net/?retryWrites=true&w=majority`).then(() => {
     console.log("Connected to database")
