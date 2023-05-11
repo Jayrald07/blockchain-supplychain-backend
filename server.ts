@@ -1,7 +1,7 @@
 import express, { NextFunction, Request } from "express";
 import dotenv from "dotenv";
 import { Contract, Gateway } from "@hyperledger/fabric-gateway";
-import { closeGRPCConnection, createAsset, getAllAssets, getAssetProvenance, isPasswordValid, readAssetByID, updateAsset } from "./src/utils";
+import { closeGRPCConnection, createAsset, getAllAssets, getAssetProvenance, isPasswordValid, readAssetByID } from "./src/utils";
 import { Client } from "@grpc/grpc-js";
 import { v4 } from "uuid";
 import Model from "./src/models/index";
@@ -10,26 +10,26 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import cors from "cors"
 import axios from "axios"
-import { approveChaincode, checkCommitReadiness, collectAndTransferCa, commitChaincode, initializeChaincode, installChaincode, performAction, setupCollectionConfig } from "./src/controllers/chaincode";
+import { approveChaincode, checkCommitReadiness, collectAndTransferCa, commitChaincode, getAssetHistory, initializeChaincode, installChaincode, performAction, setupCollectionConfig } from "./src/controllers/chaincode";
 import { validateJson } from "./src/controllers/validator";
 import { acceptInviteOu, authenticateAccount, cancelInviteOu, createOrganization, getEmailValidation, getInviteOu, getNotifs, getOrganizations, inviteOu, pingNode, rejectCancelInviteOu, rejectInviteOu, sendEmailVerification, switchToOu, validateEmailVerification, viewedNotifs } from "./src/controllers/account";
 import { Server, Socket } from "socket.io";
 import { createServer } from "https";
 import { IOServer } from "./src/socket";
-import { connectedOrganizations, inviteConnect, inviteResponse, invitesReceived, invitesSent } from "./src/controllers/channel";
+import { connectedOrganizations, getConnectionOrganizations, inviteConnect, inviteResponse, invitesReceived, invitesSent } from "./src/controllers/channel";
 import models from "./src/models/index";
 import { createKeys, encryptSymData } from "./src/utils/general";
 import { readFileSync } from "fs";
 import { body, query } from "express-validator";
-import { generateQr } from "./src/controllers/generators";
+import { createVM } from "./src/controllers/machine";
 
 dotenv.config();
 
 const app = express();
 
 const httpServer = createServer({
-    key: readFileSync('privkey.pem'),
-    cert: readFileSync('fullchain.pem')
+    key: readFileSync(process.env.PRIVATE_KEY_PATH as string),
+    cert: readFileSync(process.env.FULLCHAIN_KEY_PATH as string)
 }, app);
 const io = new Server(httpServer, {
     cors: {
@@ -265,16 +265,9 @@ app.put("/account", async (req: any, res) => {
 
     }
 
-
 });
 
 app.get("/search/asset/:name", async (req: any, res) => {
-    const { name } = req.params
-
-
-    const asset = await Model.Asset.find({ asset_name: new RegExp((name === "all" ? "" : name)), isDelete: 0 }, { __v: 0, isDelete: 0 }).populate("origin", { organization_name: 1, _id: 0 });
-
-    res.json({ asset })
 
 })
 
@@ -528,6 +521,8 @@ app.post("/joinOrderer", async (req, res) => {
 
 app.get("/organizations", getOrganizations);
 
+app.get("/getConnectionOrganizations", getConnectionOrganizations)
+
 app.get("/invitesReceived", invitesReceived)
 
 app.get("/invitesSent", invitesSent)
@@ -564,7 +559,9 @@ app.post("/getEmailVerification", body("token").notEmpty(), getEmailValidation);
 
 app.post("/validateEmailVerification", body("username").notEmpty(), body("password").notEmpty(), body("token").notEmpty(), validateEmailVerification);
 
-app.post("/generateQr", generateQr);
+app.post("/createNode", createVM)
+
+app.post("/getAssetHistory", getAssetHistory)
 
 mongoose.connect(`mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@supply-chain.9tknr9d.mongodb.net/?retryWrites=true&w=majority`).then(() => {
     console.log("Connected to database")

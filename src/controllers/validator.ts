@@ -9,7 +9,9 @@ const blacklistedPaths = [
     "/validateAssociation",
     "/createConnection",
     "/getEmailVerification",
-    "/validateEmailVerification"
+    "/validateEmailVerification",
+    "/createNode",
+    "/getAssetHistory"
 ]
 
 export const validateJson = async (req: any, _: any, next: NextFunction) => {

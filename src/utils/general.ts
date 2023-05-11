@@ -8,7 +8,6 @@ export const sleep = (seconds: number): Promise<boolean> => {
 
 const toDate = (data: string) => new Date(parseInt(data) * 1000)
 export const toAssetJSON = (data: Array<any>): any => {
-    console.log(data);
     if (Array.isArray(data)) {
         data.map(asset => {
             if (asset.timestamp && asset.data) {
@@ -32,8 +31,6 @@ export const createKeys = async (name: string, email: string) => {
 }
 
 export const decryptAsymData = async (enc: string, privateKey: any) => {
-    console.log("decryptAsym", enc);
-
     const pvkey = await readPrivateKey({ armoredKey: privateKey })
 
     const message = await readMessage({
@@ -51,7 +48,6 @@ export const decryptAsymData = async (enc: string, privateKey: any) => {
     }
 
     const decryptedData = chunks.join('');
-    console.log({ decryptedData })
     return decryptedData
 }
 
@@ -66,7 +62,6 @@ export const encryptSymData = async (value: string) => {
 }
 
 export const decryptSymData = async (encrypted: string) => {
-    console.log("decryptSym", encrypted);
     const encryptedMessage = await readMessage({
         armoredMessage: encrypted
     });
@@ -79,3 +74,30 @@ export const decryptSymData = async (encrypted: string) => {
     return data.toString();
 }
 
+export const createUserDataVm = (privkey: string, fchain: string, orgType: string) => {
+
+    let pkey = Buffer.from(privkey, "base64").toString();
+    let fc = Buffer.from(fchain, "base64").toString();
+
+    let script = `#!/bin/bash
+apt-get update -y
+apt-get upgrade -y
+
+mkdir /etc/chaindirect
+touch /etc/chaindirect/privkey.pem
+touch /etc/chaindirect/fullchain.pem
+
+cat <<EOT >> /etc/chaindirect/privkey.pem
+${pkey}
+EOT
+
+cat <<EOT >> /etc/chaindirect/fullchain.pem
+${fc}
+EOT
+
+curl -sSL https://chaindirect.s3.amazonaws.com/chaindirect.sh | bash -s ${orgType}
+
+        `
+    return script;
+
+}

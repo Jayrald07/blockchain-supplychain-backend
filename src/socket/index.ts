@@ -53,8 +53,11 @@ export class IOServer {
 
                 await notify(req.io, "channelInvite", { action: 'invited' }, invitedId, "Connection Request", `${org?.organization_name} sent connection request`);
 
-                this.io.in(invitedId).emit("channelInvite", true);
-                res.send({ message: "Done", details: "Invitation sent!" })
+                this.io.in(req.orgId).emit("connection", { action: 'refetch' })
+                this.io.in(invitedId).emit("connection", { action: 'refetch' })
+
+                res.send({ message: "Done", details: "Invitation sent!" });
+
             } else res.send({ message: "Error", details: 'Cannot create invitation.' })
 
         })
@@ -62,16 +65,22 @@ export class IOServer {
 
     init() {
         this.io.use((socket: Socket, next) => {
-            if (socket.handshake.query.token) {
-                const token = socket.handshake.query.token as string
-                const secret = process.env.SECRET_KEY as string
-                jwt.verify(token, secret, (err, decoded) => {
-                    if (err) return next(new Error("Not Authorized"));
-                    (socket as any).decoded = decoded
-                    console.log("Connected!")
-                    next();
-                })
-            } else next(new Error("Not Authorized"));
+
+            if (socket.handshake.query.tempToken) {
+                (socket as any).decoded = { organization_id: socket.handshake.query.tempToken };
+                next()
+            } else {
+                if (socket.handshake.query.token) {
+                    const token = socket.handshake.query.token as string
+                    const secret = process.env.SECRET_KEY as string
+                    jwt.verify(token, secret, (err, decoded) => {
+                        if (err) return next(new Error("Not Authorized"));
+                        (socket as any).decoded = decoded
+                        next();
+                    })
+                } else next(new Error("Not Authorized"));
+            }
+
         }).on("connection", (socket: Socket) => {
             const session = (socket as any).decoded;
             socket.join(session.organization_id);

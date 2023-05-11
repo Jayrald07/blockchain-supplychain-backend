@@ -83,22 +83,21 @@ export async function createAsset(contract: Contract, data: Asset | { id: string
 export async function readAssetByID(contract: Contract, ID: string): Promise<JSON> {
     const resultBytes = await contract.evaluateTransaction('ReadAssetPrivateDetails', ID);
     const resultJson = utf8Decoder.decode(resultBytes);
-    console.log(JSON.parse(Buffer.from(JSON.parse(resultJson).data).toString()))
     // return toAssetJSON(JSON.parse(resultJson));
     return JSON.parse(Buffer.from(JSON.parse(resultJson).data).toString())
 }
 
-export async function updateAsset(contract: Contract, data: Asset): Promise<Asset> {
-    const { color, size, id, owner } = data;
-    await contract.submitTransaction(
-        'UpdateAsset',
-        id,
-        color,
-        size,
-        owner
-    );
-    return data
-}
+// export async function updateAsset(contract: Contract, data: Asset): Promise<Asset> {
+//     const { color, size, id, owner } = data;
+//     await contract.submitTransaction(
+//         'UpdateAsset',
+//         id,
+//         color,
+//         size,
+//         owner
+//     );
+//     return data
+// }
 
 export async function deleteAsset(contract: Contract, ID: string): Promise<Response> {
     await contract.submitTransaction("DeleteAsset", ID);

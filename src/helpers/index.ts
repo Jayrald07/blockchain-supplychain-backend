@@ -11,6 +11,9 @@ import Mailgun from "mailgun.js";
 import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import puppeteer from "puppeteer"
+import QRCode from "qrcode";
+import { assetQrs } from "../templates";
+import { DateTime } from "luxon"
 
 dotenv.config();
 
@@ -47,7 +50,6 @@ export const joinOrder = async (body: any) => {
             message: `Load channel "${channelId}" configuration`,
             state: 0
         });
-        console.log({ data })
 
         const { data: result } = await axios.post(`https://${receiverHost}/receiveChannelConfig`, {
             channelConfig: data.details.config.data,
@@ -128,7 +130,6 @@ export const joinOrg = async (body: any): Promise<any> => {
             channelId,
             host: creatorHost.split(":")[0]
         })
-        console.log({ message: "Get", data })
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration received`,
             state: 1
@@ -147,7 +148,6 @@ export const joinOrg = async (body: any): Promise<any> => {
             orgType,
             host: receiverHost.split(":")[0]
         })
-        console.log({ message: "channel", result })
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration loaded`,
             state: 1
@@ -164,7 +164,6 @@ export const joinOrg = async (body: any): Promise<any> => {
             orgType,
             host: creatorHost.split(":")[0]
         })
-        console.log({ message: "sign channel", signed })
 
         io.in(orgId).emit("p2p", {
             message: `Channel "${channelId}" configuration has been signed and updated`,
@@ -185,7 +184,6 @@ export const joinOrg = async (body: any): Promise<any> => {
             host: receiverHost.split(":")[0],
             otherHost: creatorHost.split(":")[0]
         })
-        console.log({ message: "join peer", joined })
 
         io.in(orgId).emit("p2p", {
             message: `Peer has joined channel "${channelId}"`,
@@ -372,6 +370,7 @@ export const setupChaincode = async (body: any) => {
             message: `Chaincode initialized`,
             state: 2
         });
+        await notify(io, "notif", { action: 'refetch' }, secondary.invitedOrgId, "Organization connected", `${primary.orgName} has done the process of connection!`)
 
         await sleep(5000);
 
@@ -396,9 +395,7 @@ export const createAsset = async (body: any, node: AxiosInstance) => {
 
         body.assetId = response.asset_uuid
         body.channelId = channelId
-        console.log({ body })
         const { data } = await node.post("/createAsset", body)
-        console.log(data);
         return { message: "Done", details: JSON.parse(data) }
     } catch (e: any) {
         return { message: "Error", details: e.message };
@@ -410,12 +407,10 @@ export const getAssets = async (body: any, node: AxiosInstance) => {
 
     try {
         const { data } = await node.post("/getAssets", body)
-
-        const assets = await models.Asset.find({ isDelete: 0, asset_uuid: { $in: data.details } }, { isDelete: 0, __v: 0 }).populate("origin", { organization_name: 1, _id: 0 })
+        const assets = await models.Asset.find({ isDelete: 0, asset_uuid: { $in: data.details }, asset_name: { $regex: new RegExp(body.term), $options: 'i' } }, { isDelete: 0, __v: 0 }).populate("origin", { organization_name: 1, _id: 0 })
 
         return { message: "Done", details: assets }
     } catch (err: any) {
-        console.log("read")
         return { message: "Error", details: err.message };
     }
 
@@ -426,10 +421,8 @@ export const readAsset = async (body: any, node: AxiosInstance) => {
 
     try {
         const { data } = await node.post("/readAsset", body)
-
         if (data.message === "Done") {
             const asset = await models.Asset.find({ asset_uuid: data.details.assetId });
-
             if (asset) {
                 data.details.asset_name = asset[0].asset_name;
             }
@@ -438,7 +431,6 @@ export const readAsset = async (body: any, node: AxiosInstance) => {
         }
 
     } catch (err: any) {
-        console.log("read")
         return { message: "Error", details: err.message };
     }
 
@@ -448,6 +440,8 @@ export const readCollection = async (body: any, node: AxiosInstance) => {
 
     try {
         const { data } = await node.post("/readAssetCollection", body)
+
+
 
         return { message: "Done", details: data }
     } catch (err: any) {
@@ -489,7 +483,6 @@ export const transferNow = async (body: any, node: AxiosInstance) => {
 
 export const ownAsset = async (body: any, node: AxiosInstance) => {
     try {
-        console.log(body);
         const { data } = await node.post("/ownAsset", body)
 
         return { message: "Done", details: data }
@@ -503,15 +496,100 @@ export const getLogs = async (body: any, node: AxiosInstance) => {
         let { data } = await node.post("/logs", body)
 
         const org = await models.OrganizationDetails.findById(body.orgId);
-
         if (org) {
 
-            data = data.details.filter((detail: any) => detail.initiated === `${org.organization_name}MSP`);
+            // data = data.details.logs.filter((detail: any) => detail.initiated === `${org.organization_name}MSP`);
 
             return { message: "Done", details: data }
 
         } else return { message: 'Error', details: 'Organization not found.' }
 
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const returnTransaction = async (body: any, node: AxiosInstance) => {
+    try {
+        let { data } = await node.post("/returnTransaction", body)
+
+        return { message: "Done", details: data }
+
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const getBackAssets = async (body: any, node: AxiosInstance) => {
+    try {
+        let { data } = await node.post("/getBackAssets", body)
+
+        return { message: "Done", details: data }
+
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const rejectTransaction = async (body: any, node: AxiosInstance) => {
+    try {
+        let { data } = await node.post("/rejectTransaction", body)
+
+        return { message: "Done", details: data }
+
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const cancelTransaction = async (body: any, node: AxiosInstance) => {
+    try {
+        let { data } = await node.post("/cancelTransaction", body)
+
+        return { message: "Done", details: data }
+
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const acceptReturnTransaction = async (body: any, node: AxiosInstance) => {
+    try {
+        let { data } = await node.post("/acceptReturnTransaction", body)
+
+        return { message: "Done", details: data }
+
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const updateAsset = async (body: any, node: AxiosInstance) => {
+    try {
+        const asset = await models.Asset.findById(body.assetId);
+
+        await asset?.updateOne({ $set: { asset_name: body.asset_name } });
+
+        body.assetId = asset?.asset_uuid;
+        let { data } = await node.post("/updateAsset", body)
+        return { message: "Done", details: data }
+
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const removeAsset = async (body: any, node: AxiosInstance) => {
+    try {
+        const assets = await models.Asset.find({ _id: { $in: body.assetIds } });
+
+        let assetIds = assets.map((asset) => asset.asset_uuid);
+
+        body.assetIds = assetIds;
+
+        let { data } = await node.post("/removeAsset", body)
+
+        return { message: "Done", details: data }
     } catch (err: any) {
         return { message: "Error", details: err.message };
     }
@@ -571,24 +649,85 @@ export const validateJwt = async (token: string) => {
     }
 }
 
-export const generatePdf = async (html: string) => {
+export const generatePdf = async (orgId: string, channelId: string, assets: any) => {
     try {
 
+        const data: any = [];
+
+        for (let asset of assets) {
+            const value = await QRCode.toDataURL(`${orgId}:${channelId}:${asset.asset_uuid}`);
+
+            data.push({
+                id: asset.asset_uuid,
+                name: asset.asset_name,
+                qr: value
+            })
+
+        }
+
+        const today = DateTime.now().setZone("Asia/Manila").toLocaleString({ weekday: 'short', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', year: 'numeric' });
+        const assetTemplate = assetQrs(data, today);
+
+
         const browser = await puppeteer.launch({
-            headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox']
+            headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            executablePath: "/home/ubuntu/.cache/puppeteer/chrome/linux-113.0.5672.63/chrome-linux64/chrome"
         });
         const page = await browser.newPage();
 
-        await page.setContent(html);
+        await page.setContent(assetTemplate);
         const pdf = await page.pdf({ format: 'A4' });
 
         await browser.close();
 
-        return { message: "Done", details: pdf.toString("base64") };
+        return pdf.toString("base64");
 
     } catch (error: any) {
 
         return { message: "Error", details: error.message }
 
+    }
+}
+
+export const generatePdfTransaction = async (transactions: any) => {
+    try {
+
+        const data: any = [];
+
+
+
+        const today = DateTime.now().setZone("Asia/Manila").toLocaleString({ weekday: 'short', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', year: 'numeric' });
+        const assetTemplate = assetQrs(data, today);
+
+
+        const browser = await puppeteer.launch({
+            headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'],
+            executablePath: "/home/ubuntu/.cache/puppeteer/chrome/linux-113.0.5672.63/chrome-linux64/chrome"
+        });
+        const page = await browser.newPage();
+
+        await page.setContent(assetTemplate);
+        const pdf = await page.pdf({ format: 'A4' });
+
+        await browser.close();
+
+        return pdf.toString("base64");
+
+    } catch (error: any) {
+
+        return { message: "Error", details: error.message }
+
+    }
+}
+
+export const getOrgDetails = async (orgId: string) => {
+    try {
+
+        const org = await models.OrganizationDetails.findById(orgId);
+
+        return { message: "Done", details: org };
+
+    } catch (error: any) {
+        return { message: "Error", details: error.message }
     }
 }

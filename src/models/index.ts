@@ -24,7 +24,8 @@ const organization_details = new Schema({
     organization_port: String,
     organization_pubkey: String,
     organization_privkey: String,
-    organization_email_is_verified: { type: Boolean, default: false }
+    organization_email_is_verified: { type: Boolean, default: false },
+    organization_display_name: String
 }, { timestamps: true })
 
 const organization_verification = new Schema({
@@ -87,6 +88,11 @@ const notification = new Schema({
     viewed: { type: Boolean, default: false }
 }, { timestamps: true })
 
+const organization_channels_connection = new Schema({
+    channelId: String,
+    organizationIds: [{ type: Schema.Types.ObjectId, ref: 'OrganizationDetails' }]
+}, { timestamps: true })
+
 const Organization = mongoose.model('Organization', organization);
 const OrganizationType = mongoose.model('OrganizationType', organization_type);
 const OrganizationDetails = mongoose.model('OrganizationDetails', organization_details);
@@ -98,6 +104,7 @@ const Tag = mongoose.model('Tag', tag);
 const Invite = mongoose.model('Invite', invite);
 const Notification = mongoose.model('Notification', notification);
 const Verification = mongoose.model('Verification', organization_verification);
+const OrganizationChannelConnection = mongoose.model('OrganizationChannelConnection', organization_channels_connection);
 
 export default {
     Organization,
@@ -110,5 +117,6 @@ export default {
     Tag,
     Invite,
     Notification,
-    Verification
+    Verification,
+    OrganizationChannelConnection
 }
