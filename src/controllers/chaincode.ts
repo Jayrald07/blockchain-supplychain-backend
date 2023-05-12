@@ -1,8 +1,9 @@
 import { Request, Response, Router } from "express";
 import axios from "axios";
-import { acceptAsset, cancelTransaction, createAsset, generatePdf, getAssets, getBackAssets, getLogs, getOrgDetails, notify, ownAsset, readAsset, readCollection, rejectTransaction, removeAsset, returnTransaction, transferAsset, transferNow, updateAsset } from "../helpers";
+import { acceptAsset, cancelTransaction, createAsset, generatePdf, generatePdfTransaction, getAssets, getBackAssets, getLogs, getOrgDetails, notify, ownAsset, pullAssets, pushAssets, readAsset, readCollection, rejectTransaction, removeAsset, returnTransaction, transferAsset, transferNow, updateAsset } from "../helpers";
 import models from "../models";
 import { DateTime } from "luxon";
+import { sleep } from "../utils/general";
 
 const router = Router();
 
@@ -153,6 +154,7 @@ export const initializeChaincode = async (body: any) => {
 }
 
 export const performAction = async (req: any, res: Response) => {
+    req.setTimeout(10000);
     let { action, args } = req.body;
     let data;
     try {
@@ -210,11 +212,22 @@ export const performAction = async (req: any, res: Response) => {
                 args.orgName = organization?.organization_name;
                 args.host = organization?.organization_ip
                 data = await readCollection(args, node);
+                if (data.message === "Done") {
+                    let items = data.details;
+                    let gathered = items.filter((item: any) => {
+                        return (DateTime.fromSeconds(item.created).setZone("Asia/Manila").toFormat('yyyy-MM-dd') >= args.startDate && DateTime.fromSeconds(item.created).setZone("Asia/Manila").toFormat('yyyy-MM-dd') <= args.endDate)
+                    })
+                    data.details = gathered;
+                }
+                if (data.message === "Done") {
+                    data = await generatePdfTransaction(args.channelId, data.details);
+                }
                 break;
             case "READ_COLLECTION":
                 args.orgName = organization?.organization_name;
                 args.host = organization?.organization_ip
                 data = await readCollection(args, node);
+                console.log({ data })
                 if (data.message === "Done") {
                     let items = data.details;
                     let gathered = items.filter((item: any) => {
@@ -257,10 +270,12 @@ export const performAction = async (req: any, res: Response) => {
                 data = await getLogs(args, node);
                 if (data.message === "Done") {
                     let items = data.details.details.logs;
-                    let gathered = items.filter((item: any) => {
-                        return (DateTime.fromSeconds(item.timestamp).setZone("Asia/Manila").toFormat('yyyy-MM-dd') >= args.startDate && DateTime.fromSeconds(item.timestamp).setZone("Asia/Manila").toFormat('yyyy-MM-dd') <= args.endDate)
-                    })
-                    data.details.details.logs = gathered;
+                    if (Array.isArray(items)) {
+                        let gathered = items.filter((item: any) => {
+                            return (DateTime.fromSeconds(item.timestamp).setZone("Asia/Manila").toFormat('yyyy-MM-dd') >= args.startDate && DateTime.fromSeconds(item.timestamp).setZone("Asia/Manila").toFormat('yyyy-MM-dd') <= args.endDate)
+                        })
+                        data.details.details.logs = gathered;
+                    }
                 }
                 break;
             case "RETURN":
@@ -276,6 +291,53 @@ export const performAction = async (req: any, res: Response) => {
                 args.orgId = req.orgId
                 data = await getBackAssets(args, node);
                 await processNotification(data, "Transaction pulled", "has pulled the assets from the transaction");
+                break;
+            case "MOVE":
+                args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
+                args.orgId = req.orgId
+                data = await pullAssets(args, node);
+                console.log(data)
+                if (data.message === "Done") {
+                    console.log(data)
+                    let asset = JSON.parse(data.details);
+                    if (asset.message === "Done") {
+                        args.assets = asset.details;
+                        args.channelId = args.channelTo
+                        data = await pushAssets(args, node);
+                        console.log(data)
+                    } else {
+                        throw new Error(asset.details);
+                    }
+                } else {
+                    throw new Error(data.details);
+                }
+                break;
+            case 'COPY':
+                args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
+                data = [];
+                for (let assetId of args.assetIds) {
+                    args.assetId = assetId;
+                    let val = await readAsset(args, node);
+                    if (val.message === "Done") {
+                        let resp = val.details;
+                        if (resp.message === "Done") {
+                            data.push(resp.details);
+                        } else throw new Error(resp.details)
+                    } else throw new Error(val.details);
+                }
+                args.assets = data;
+                args.channelId = args.channelTo
+                data = await pushAssets(args, node);
+
+                break
+            case "PUSH":
+                args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
+                args.orgId = req.orgId
+                data = await pushAssets(args, node);
+                console.log({ data });
                 break;
             case "REJECT":
                 args.orgName = organization?.organization_name;
@@ -324,6 +386,7 @@ export const performAction = async (req: any, res: Response) => {
 
         res.send({ message: "Done", details: data })
     } catch (err: any) {
+        console.log({ err })
         res.send({ message: "Error", details: err.message })
     }
 

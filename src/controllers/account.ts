@@ -256,19 +256,51 @@ export const switchToOu = async (req: any, res: any) => {
 
         if (!inviteOu) return res.send({ message: "Error", details: 'Cannot find invite' });
 
-        const org = await Model.Organization.findOne({ organization_details_id: inviteOu?.organization_details_id })
+        const org = await Model.Organization.findOne({ organization_details_id: inviteOu?.organization_id })
 
         if (!org) return res.send({ message: 'Error', details: 'Organization is not existing' });
 
+        const updateOrg = await Model.OrganizationDetails.findById(inviteOu.organization_id);
+
         const notif = await notify(req.io, "account", { action: 'refetch' }, inviteOu.organization_details_id?.toString() as string, "Account accessed", `Your account has been accessed by ${org.organization_username}`);
 
-        res.send({ message: "Switched", token: jwt.sign({ username: org.organization_username, organization_id: inviteOu.organization_details_id }, process.env.SECRET_KEY as string, { expiresIn: "1d" }) })
+        res.send({ message: "Switched", token: jwt.sign({ username: org.organization_username, organization_id: inviteOu.organization_details_id, accessedById: inviteOu.organization_id?.toString() }, process.env.SECRET_KEY as string, { expiresIn: "1d" }) })
     } catch (error: any) {
         res.send({ message: 'Error', details: error.message })
     }
 
 }
 
+
+export const validateSwitched = async (req: any, res: any) => {
+    try {
+
+        res.send({ message: "Done", details: req.accessedById })
+
+    } catch (error: any) {
+        res.send({ message: "Error", details: error.message })
+    }
+}
+
+export const switchBack = async (req: any, res: any) => {
+    try {
+
+        const { accessedById } = req;
+
+        if (accessedById) {
+
+            const org = await Model.Organization.findOne({ organization_details_id: accessedById });
+
+            if (!org) return res.send({ message: "Error", details: 'Account not found' })
+
+            res.send({ message: "Done", token: jwt.sign({ username: org?.organization_password, organization_id: org?.organization_details_id }, process.env.SECRET_KEY as string, { expiresIn: "1d" }) })
+
+        } else res.send({ message: "Error", details: 'Cannot switched back' })
+
+    } catch (error: any) {
+        res.send({ message: "Error", details: error.message })
+    }
+}
 
 export const getNotifs = async (req: any, res: any) => {
 

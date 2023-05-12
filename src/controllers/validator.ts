@@ -30,6 +30,7 @@ export const validateJson = async (req: any, _: any, next: NextFunction) => {
         req.decoded = decoded;
 
         req.orgId = decoded.organization_id;
+        req.accessedById = decoded.accessedById || null
 
         next();
 

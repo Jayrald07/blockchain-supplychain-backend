@@ -12,7 +12,7 @@ import dotenv from "dotenv";
 import jwt from "jsonwebtoken";
 import puppeteer from "puppeteer"
 import QRCode from "qrcode";
-import { assetQrs } from "../templates";
+import { assetQrs, transaction } from "../templates";
 import { DateTime } from "luxon"
 
 dotenv.config();
@@ -371,6 +371,7 @@ export const setupChaincode = async (body: any) => {
             state: 2
         });
         await notify(io, "notif", { action: 'refetch' }, secondary.invitedOrgId, "Organization connected", `${primary.orgName} has done the process of connection!`)
+        await notify(io, "connection", { action: 'refetch' }, secondary.invitedOrgId, "Organization connected", `${primary.orgName} has done the process of connection!`)
 
         await sleep(5000);
 
@@ -428,7 +429,7 @@ export const readAsset = async (body: any, node: AxiosInstance) => {
             }
 
             return { message: "Done", details: data }
-        }
+        } else return { message: "Eror", details: data.details }
 
     } catch (err: any) {
         return { message: "Error", details: err.message };
@@ -595,6 +596,26 @@ export const removeAsset = async (body: any, node: AxiosInstance) => {
     }
 }
 
+export const pullAssets = async (body: any, node: AxiosInstance) => {
+    try {
+        let { data } = await node.post("/pullAssets", body)
+
+        return { message: "Done", details: data }
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const pushAssets = async (body: any, node: AxiosInstance) => {
+    try {
+        let { data } = await node.post("/pushAssets", body)
+
+        return { message: "Done", details: data }
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
 export const notify = async (io: Socket, event: string, data: any, organizationId: string, title: string, description: string) => {
     try {
 
@@ -666,8 +687,8 @@ export const generatePdf = async (orgId: string, channelId: string, assets: any)
         }
 
         const today = DateTime.now().setZone("Asia/Manila").toLocaleString({ weekday: 'short', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', year: 'numeric' });
-        const assetTemplate = assetQrs(data, today);
 
+        const assetTemplate = assetQrs(data, channelId, today);
 
         const browser = await puppeteer.launch({
             headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -689,15 +710,62 @@ export const generatePdf = async (orgId: string, channelId: string, assets: any)
     }
 }
 
-export const generatePdfTransaction = async (transactions: any) => {
+export const generatePdfTransaction = async (channelId: string, transactions: any) => {
     try {
 
         const data: any = [];
 
 
+        for (let transaction of transactions) {
+            let struct: { date: string, id: string, status: string, assets: any[], color: string } = {
+                date: "",
+                id: "",
+                status: "",
+                color: "",
+                assets: []
+            }
+
+            struct.id = transaction.id;
+
+            struct.date = DateTime.fromSeconds(transaction.created).setZone("Asia/Manila").toLocaleString({ weekday: 'short', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', year: 'numeric' });
+
+            if (transaction.isReturned) {
+                struct.status = 'Returned';
+                struct.color = "248 113 113"
+            }
+            if (transaction.isRejected) {
+                struct.status = 'Rejected';
+                struct.color = "248 113 113"
+            }
+            if (transaction.isCancelled) {
+                struct.status = 'Cancelled';
+                struct.color = "248 113 113"
+            }
+            if (!transaction.isCurrentOwnerApproved && !transaction.isNewOwnerApproved && !transaction.isRejected && !transaction.isCancelled) {
+                struct.status = 'For Acceptance'
+                struct.color = "254 215 170"
+            }
+            if (!struct.status) {
+                struct.status = 'Done'
+                struct.color = "74 222 128"
+            }
+
+            for (let asset of transaction.assetIds) {
+                let _asset = { name: "", tags: [] }
+                const assetData = await models.Asset.findOne({ asset_uuid: asset.assetId });
+                _asset.name = assetData?.asset_name as string;
+                _asset.tags = typeof asset.tags === "string" ? JSON.parse(asset.tags) : asset.tags;
+                struct.assets.push(_asset);
+            }
+
+            data.push(struct);
+
+        }
+
 
         const today = DateTime.now().setZone("Asia/Manila").toLocaleString({ weekday: 'short', month: 'short', day: '2-digit', hour: '2-digit', minute: '2-digit', year: 'numeric' });
-        const assetTemplate = assetQrs(data, today);
+
+        const assetTemplate = transaction(data, channelId, today);
 
 
         const browser = await puppeteer.launch({
@@ -711,7 +779,7 @@ export const generatePdfTransaction = async (transactions: any) => {
 
         await browser.close();
 
-        return pdf.toString("base64");
+        return pdf.toString("base64")
 
     } catch (error: any) {
 
