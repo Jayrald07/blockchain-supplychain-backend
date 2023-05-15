@@ -42,7 +42,8 @@
         "qrcode": "^1.5.3",
         "socket.io": "^4.6.1",
         "socket.io-client": "^4.6.1",
-        "uuid": "^9.0.0"
+        "uuid": "^9.0.0",
+        "winston": "^3.8.2"
     },
     "devDependencies": {
         "@tsconfig/node14": "^1.0.3",

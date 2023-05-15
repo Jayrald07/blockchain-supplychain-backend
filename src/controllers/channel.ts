@@ -4,6 +4,7 @@ import axios from "axios";
 import { joinOrder, joinOrg, notify, setupChaincode } from "../helpers";
 import { Socket } from "socket.io-client";
 import { Server } from "socket.io";
+import winston from "winston";
 
 export const getConnectionOrganizations = async (req: any, res: Response) => {
 
@@ -86,6 +87,7 @@ export const inviteResponse = async (req: any, res: Response) => {
 export const inviteConnect = async (req: any, res: Response) => {
     const { inviteId } = req.body;
     const io: Server = req.io;
+    const logger: winston.Logger = req.logger;
 
     try {
 
@@ -152,6 +154,7 @@ export const inviteConnect = async (req: any, res: Response) => {
         });
 
     } catch (error: any) {
+        logger.error(error.message);
         res.send({ message: "Error", details: error.message })
     }
 

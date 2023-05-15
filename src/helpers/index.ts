@@ -641,12 +641,12 @@ export const notify = async (io: Socket, event: string, data: any, organizationI
     }
 }
 
-export const sendMail = async (email: string, template: string, variables: any) => {
+export const sendMail = async (email: string, subject: string, template: string, variables: any) => {
     try {
         const msg = await mg.messages.create('chainblockdirect.live', {
             from: 'ChainDirect <no-reply@chainblockdirect.live>',
             to: [email],
-            subject: 'Email Verification',
+            subject,
             template: template,
             't:variables': JSON.stringify(variables)
         })
@@ -798,4 +798,47 @@ export const getOrgDetails = async (orgId: string) => {
     } catch (error: any) {
         return { message: "Error", details: error.message }
     }
+}
+
+enum Status {
+    DONE = 'Done',
+    REJECTED = 'Rejected',
+    RETURNED = 'Returned',
+    CANCELLED = 'Cancelled',
+
+}
+export const byStatus = (statuses: string[], items: any[]) => {
+    let processedItems: any[] = [];
+    items.map(item => {
+        statuses.map(status => {
+            switch (status) {
+                case Status.DONE:
+
+                    if (!item.isReturned && item.isOwnershipChanged) processedItems.push(item);
+
+                    break;
+                case Status.REJECTED:
+                    if (item.isRejected) processedItems.push(item);
+
+                    break;
+                case Status.RETURNED:
+                    if (item.isReturned) processedItems.push(item);
+                    break
+                case Status.CANCELLED:
+                    if (item.isCancelled) processedItems.push(item);
+
+                    break;
+                default:
+                    break;
+            }
+        })
+    })
+    return processedItems;
+}
+
+export const byLogStatus = (statuses: string[], items: any) => {
+    let processedItems = items.filter((item: any) => {
+        return statuses.includes(item.action)
+    })
+    return processedItems;
 }

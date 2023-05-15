@@ -22,6 +22,8 @@ import { createKeys, encryptSymData } from "./src/utils/general";
 import { readFileSync } from "fs";
 import { body, query } from "express-validator";
 import { createVM } from "./src/controllers/machine";
+import winston from "winston";
+import { logger } from "./src/controllers/logger";
 
 dotenv.config();
 
@@ -49,6 +51,8 @@ app.use((req: any, _, next: NextFunction) => {
 app.use(cors({
     origin: "*"
 }))
+
+app.use(logger);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }))
@@ -333,7 +337,6 @@ app.post("/external", async (req: any, res) => {
 
 
     } catch (err: any) {
-        console.log(err)
         res.send({ message: "Error", details: err.message });
     }
 
@@ -374,9 +377,8 @@ app.post("/validateAssociation", async (req: any, res) => {
 
 app.post("/createConnection", async (req: any, res) => {
     const { ip, port, organization_id } = req.body;
-    console.log(req.body)
     try {
-        const { data } = await axios.get(`https://${ip}:${port}/ping`);
+        const { data } = await axios.get(`https://${ip}:8012/ping`);
 
         if (data.message !== "Done" && data.details !== "pong") return res.send({ message: "Error", details: "Cannot ping the address and port provided" });
 
@@ -394,7 +396,6 @@ app.post("/createConnection", async (req: any, res) => {
 
         res.send({ message: "Done", details: "Host verified" });
     } catch (err: any) {
-        console.log(err)
         res.send({ message: "Error", details: "Cannot ping the provided IP and port" });
     }
 
@@ -425,12 +426,12 @@ app.get("/channels", async (req: any, res) => {
     try {
 
         const organization = await models.OrganizationDetails.findById(req.orgId);
-
         const channel = await axios.get(`https://${organization?.organization_ip}:${organization?.organization_port}/channels?orgName=${organization?.organization_name}&host=${organization?.organization_ip}`);
 
         res.send({ message: "Done", details: channel.data });
 
     } catch (error: any) {
+
         res.send({ message: "Error", details: error.message })
     }
 
@@ -444,7 +445,6 @@ app.post("/joinOrg", async (req: any, res) => {
             orgName,
             channelId
         })
-        console.log(".")
         const { data: result } = await axios.post(`https://${receiverHost}/receiveChannelConfig`, {
             channelConfig: data.details.config.data,
             ordererTlsCa: data.details.ordererTlsCa.data,
@@ -486,7 +486,6 @@ app.post("/joinOrderer", async (req, res) => {
             orgName,
             channelId
         })
-        console.log({ data })
         const { data: result } = await axios.post(`https://${receiverHost}/receiveChannelConfig`, {
             channelConfig: data.details.config.data,
             ordererTlsCa: data.details.ordererTlsCa.data,
@@ -566,7 +565,6 @@ app.post("/createNode", createVM)
 app.post("/getAssetHistory", getAssetHistory)
 
 app.post("/validateSwitched", validateSwitched);
-
 
 app.post("/switchBack", switchBack)
 

@@ -1,6 +1,6 @@
 import { Request, Response, Router } from "express";
 import axios from "axios";
-import { acceptAsset, cancelTransaction, createAsset, generatePdf, generatePdfTransaction, getAssets, getBackAssets, getLogs, getOrgDetails, notify, ownAsset, pullAssets, pushAssets, readAsset, readCollection, rejectTransaction, removeAsset, returnTransaction, transferAsset, transferNow, updateAsset } from "../helpers";
+import { acceptAsset, byLogStatus, byStatus, cancelTransaction, createAsset, generatePdf, generatePdfTransaction, getAssets, getBackAssets, getLogs, getOrgDetails, notify, ownAsset, pullAssets, pushAssets, readAsset, readCollection, rejectTransaction, removeAsset, returnTransaction, transferAsset, transferNow, updateAsset } from "../helpers";
 import models from "../models";
 import { DateTime } from "luxon";
 import { sleep } from "../utils/general";
@@ -217,7 +217,8 @@ export const performAction = async (req: any, res: Response) => {
                     let gathered = items.filter((item: any) => {
                         return (DateTime.fromSeconds(item.created).setZone("Asia/Manila").toFormat('yyyy-MM-dd') >= args.startDate && DateTime.fromSeconds(item.created).setZone("Asia/Manila").toFormat('yyyy-MM-dd') <= args.endDate)
                     })
-                    data.details = gathered;
+                    if (args.statuses.length) data.details = byStatus(args.statuses, gathered);
+                    else data.details = gathered
                 }
                 if (data.message === "Done") {
                     data = await generatePdfTransaction(args.channelId, data.details);
@@ -227,13 +228,13 @@ export const performAction = async (req: any, res: Response) => {
                 args.orgName = organization?.organization_name;
                 args.host = organization?.organization_ip
                 data = await readCollection(args, node);
-                console.log({ data })
                 if (data.message === "Done") {
                     let items = data.details;
                     let gathered = items.filter((item: any) => {
                         return (DateTime.fromSeconds(item.created).setZone("Asia/Manila").toFormat('yyyy-MM-dd') >= args.startDate && DateTime.fromSeconds(item.created).setZone("Asia/Manila").toFormat('yyyy-MM-dd') <= args.endDate)
                     })
-                    data.details = gathered;
+                    if (args.statuses.length) data.details = byStatus(args.statuses, gathered);
+                    else data.details = gathered
                 }
                 break;
             case "TRANSFER":
@@ -274,7 +275,8 @@ export const performAction = async (req: any, res: Response) => {
                         let gathered = items.filter((item: any) => {
                             return (DateTime.fromSeconds(item.timestamp).setZone("Asia/Manila").toFormat('yyyy-MM-dd') >= args.startDate && DateTime.fromSeconds(item.timestamp).setZone("Asia/Manila").toFormat('yyyy-MM-dd') <= args.endDate)
                         })
-                        data.details.details.logs = gathered;
+                        if (args.statuses.length) data.details.details.logs = byLogStatus(args.statuses, items);
+                        else data.details.details.logs = gathered
                     }
                 }
                 break;
@@ -297,15 +299,12 @@ export const performAction = async (req: any, res: Response) => {
                 args.host = organization?.organization_ip
                 args.orgId = req.orgId
                 data = await pullAssets(args, node);
-                console.log(data)
                 if (data.message === "Done") {
-                    console.log(data)
                     let asset = JSON.parse(data.details);
                     if (asset.message === "Done") {
                         args.assets = asset.details;
                         args.channelId = args.channelTo
                         data = await pushAssets(args, node);
-                        console.log(data)
                     } else {
                         throw new Error(asset.details);
                     }
@@ -337,7 +336,6 @@ export const performAction = async (req: any, res: Response) => {
                 args.host = organization?.organization_ip
                 args.orgId = req.orgId
                 data = await pushAssets(args, node);
-                console.log({ data });
                 break;
             case "REJECT":
                 args.orgName = organization?.organization_name;
@@ -386,7 +384,6 @@ export const performAction = async (req: any, res: Response) => {
 
         res.send({ message: "Done", details: data })
     } catch (err: any) {
-        console.log({ err })
         res.send({ message: "Error", details: err.message })
     }
 
@@ -429,6 +426,13 @@ export const getAssetHistory = async (req: any, res: any) => {
                     if (item.org === org._id.toString()) history.push({ ...org.toJSON(), timestamp: item.timestamp });
                 })
             })
+
+            if (data.details.details.subAssets.length) {
+                let id = await getOrgs([data.details.details.subAssets[0].history[1].org]);
+                id.map(orgm => {
+                    if (data.details.details.subAssets[0].history[1].org === orgm._id.toString()) history.push({ ...orgm.toJSON(), timestamp: data.details.details.subAssets[0].history[1].timestamp })
+                })
+            }
 
             res.send({ message: "Done", details: { ...data.details.details, history } })
 

@@ -8,6 +8,7 @@ import { generateKeyPairSync } from "crypto"
 import { createKeys, encryptSymData } from "../utils/general";
 import { notify, sendMail, validateJwt } from "../helpers";
 import { matchedData, validationResult } from "express-validator";
+import winston from "winston"
 
 export const pingNode = async (req: any, res: Response) => {
 
@@ -55,7 +56,8 @@ export const createOrganization = async (req: Request, res: Response) => {
         const organization = new Model.Organization({
             organization_username,
             organization_password: newPassword,
-            organization_details_id: response._id
+            organization_details_id: response._id,
+            organization_type: "ADMIN"
         })
 
         await organization.save();
@@ -67,20 +69,45 @@ export const createOrganization = async (req: Request, res: Response) => {
 
 export const authenticateAccount = async (req: any, res: Response) => {
     const { username, password } = req.body;
+    const logger: winston.Logger = req.logger;
     try {
         const account = await Model.Organization.findOne({ organization_username: { $eq: username } });
 
-        if (!account) return res.send({ message: "Error", details: "Invalid username or password" });
+
+        if (!account) {
+            logger.info("Username not existing")
+            return res.send({ message: "Error", details: "Invalid username or password" });
+        }
 
         const isEqual = await bcrypt.compare(password, account.organization_password as string);
 
-        if (!isEqual) return res.send({ message: "Error", details: "Invalid username or password" });
+        if (!isEqual) {
+            logger.info("Not equal password")
+            return res.send({ message: "Error", details: "Invalid username or password" });
+        }
 
+
+        logger.info(`${username} has signed in`)
         res.send({ message: "Authorized", token: jwt.sign({ username, organization_id: account.organization_details_id }, process.env.SECRET_KEY as string, { expiresIn: "1d" }) })
 
 
     } catch (e: any) {
+        logger.error(e.message)
         res.send({ message: "Error", details: e.message })
+    }
+}
+
+export const createUser = async (req: any, res: Response) => {
+    try {
+
+        const orgId = req.orgId;
+        const { username, email } = req.body;
+
+
+
+
+    } catch (error: any) {
+        res.send({ message: "Error", details: error.message })
     }
 }
 
@@ -380,7 +407,7 @@ export const sendEmailVerification = async (req: any, res: any) => {
             }
 
 
-            const data = await sendMail(validated.email, 'email-verification', {
+            const data = await sendMail(validated.email, "Email Verification", 'email-verification', {
                 orgName: org?.organization_name,
                 verificationLink
             });
@@ -403,7 +430,7 @@ export const sendEmailVerification = async (req: any, res: any) => {
 
         verificationLink = `https://chainblockdirect.live/email-verification?token=${token}`
 
-        const data = await sendMail(validated.email, 'email-verification', {
+        const data = await sendMail(validated.email, "Email Verification", 'email-verification', {
             orgName: org?.organization_name,
             verificationLink
         });

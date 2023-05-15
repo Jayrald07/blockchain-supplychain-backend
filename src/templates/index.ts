@@ -159,12 +159,12 @@ export const transaction = (data: any, channelId: string, date: string) => {
 
         ${item.assets.map((asset: any) => {
       return `
-            <tr class="row" style="background-color: rgb(248 250 252)">
+            <tr class="row" style="background-color: rgb(248 250 252);border-bottom: 1px solid rgb(241 245 249)">
               <td style="font-size: 10pt">${asset.name}</td>
               <td colspan="2" style="font-size: 10pt">
               ${asset.tags.map((tag: any) => {
         return `
-                  <p><b>${tag.key}: </b> ${tag.value}</p>
+                  <p style="margin:0"><b>${tag.key}: </b> ${tag.value}</p>
                   
                   `
       }).join("")
