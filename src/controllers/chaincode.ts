@@ -4,6 +4,7 @@ import { acceptAsset, byLogStatus, byStatus, cancelTransaction, createAsset, gen
 import models from "../models";
 import { DateTime } from "luxon";
 import { sleep } from "../utils/general";
+import moment from "moment";
 
 const router = Router();
 
@@ -222,6 +223,30 @@ export const performAction = async (req: any, res: Response) => {
                 }
                 if (data.message === "Done") {
                     data = await generatePdfTransaction(args.channelId, data.details);
+                }
+                break;
+            case 'WEEKLY':
+                args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
+                data = await readCollection(args, node);
+                if (data.message === "Done") {
+                    let items = data.details;
+                    let labels = [];
+                    let dataVals = [];
+                    let ref = args.startDate;
+                    for (let i = 0; i < 7; i++) {
+                        labels.push(moment(ref).format("MMMM DD"));
+                        let d = moment(args.startDate).unix()
+                        let count = items.filter((item: any) => {
+                            return (DateTime.fromSeconds(item.created).setZone("Asia/Manila").toFormat('yyyy-MM-dd') >= ref && DateTime.fromSeconds(item.created).setZone("Asia/Manila").toFormat('yyyy-MM-dd') <= ref)
+                        })
+                        dataVals.push(count.length);
+                        ref = DateTime.fromISO(ref).plus({ days: 1 }).setZone("Asia/Manila").toFormat('yyyy-MM-dd')
+                    }
+                    data = {
+                        labels,
+                        data: dataVals
+                    }
                 }
                 break;
             case "READ_COLLECTION":

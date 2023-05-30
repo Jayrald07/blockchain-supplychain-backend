@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: Apache-2.0
 #
 
+*.log
 
 # Coverage directory used by tools like istanbul
 coverage
