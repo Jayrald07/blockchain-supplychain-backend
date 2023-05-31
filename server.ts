@@ -11,8 +11,8 @@ import jwt from "jsonwebtoken";
 import cors from "cors"
 import axios from "axios"
 import { approveChaincode, checkCommitReadiness, collectAndTransferCa, commitChaincode, getAssetHistory, initializeChaincode, installChaincode, performAction, setupCollectionConfig } from "./src/controllers/chaincode";
-import { validateJson } from "./src/controllers/validator";
-import { acceptInviteOu, authenticateAccount, cancelInviteOu, createOrganization, getEmailValidation, getInviteOu, getNotifs, getOrganizations, inviteOu, pingNode, rejectCancelInviteOu, rejectInviteOu, sendEmailVerification, switchBack, switchToOu, validateEmailVerification, validateSwitched, viewedNotifs } from "./src/controllers/account";
+import { validateClient, validateJson } from "./src/controllers/validator";
+import { acceptInviteOu, authClient, authenticateAccount, cancelInviteOu, createOrganization, getClient, getEmailValidation, getInviteOu, getNotifs, getOrganizations, inviteOu, pingNode, rejectCancelInviteOu, rejectInviteOu, sendEmailVerification, setupClient, switchBack, switchToOu, updateClient, validateEmailVerification, validateSwitched, viewedNotifs } from "./src/controllers/account";
 import { Server, Socket } from "socket.io";
 import { createServer } from "https";
 import { IOServer } from "./src/socket";
@@ -35,6 +35,7 @@ const httpServer = createServer({
     key: readFileSync(process.env.PRIVATE_KEY_PATH as string),
     cert: readFileSync(process.env.FULLCHAIN_KEY_PATH as string),
 }, app);
+
 const io = new Server(httpServer, {
     cors: {
         origin: "*"
@@ -566,7 +567,15 @@ app.post("/getAssetHistory", getAssetHistory)
 
 app.post("/validateSwitched", validateSwitched);
 
-app.post("/switchBack", switchBack)
+app.post("/switchBack", switchBack);
+
+app.post("/setupClient", setupClient);
+
+app.post("/authClient", authClient);
+
+app.post("/getClient", getClient);
+
+app.post("/updateClient", validateClient, updateClient)
 
 mongoose.connect(`mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@supply-chain.9tknr9d.mongodb.net/?retryWrites=true&w=majority`).then(() => {
     console.log("Connected to database")

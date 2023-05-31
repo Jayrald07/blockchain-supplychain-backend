@@ -11,7 +11,11 @@ const blacklistedPaths = [
     "/getEmailVerification",
     "/validateEmailVerification",
     "/createNode",
-    "/getAssetHistory"
+    "/getAssetHistory",
+    "/setupClient",
+    "/authClient",
+    "/getClient",
+    "/updateClient"
 ]
 
 export const validateJson = async (req: any, _: any, next: NextFunction) => {
@@ -31,6 +35,29 @@ export const validateJson = async (req: any, _: any, next: NextFunction) => {
 
         req.orgId = decoded.organization_id;
         req.accessedById = decoded.accessedById || null
+
+        next();
+
+    } catch (error: any) {
+        next(error.message);
+    }
+
+}
+
+export const validateClient = async (req: any, _: any, next: NextFunction) => {
+
+    try {
+
+        if (!req.headers.authorization) next('Unauthorized');
+
+        const token = req.headers.authorization?.split(" ")[1] as string;
+
+
+        const decoded = jwt.verify(token, process.env.SECRET_KEY as string) as any;
+
+        req.decoded = decoded;
+
+        req.clientId = decoded.client_id;
 
         next();
 

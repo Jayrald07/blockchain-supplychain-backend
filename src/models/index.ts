@@ -12,7 +12,7 @@ const organization_user = new Schema({
     organization_user_name: String,
     organization_user_email: String,
     organization_roles: [{ type: Schema.Types.ObjectId, ref: 'OrganizationRole' }]
-})
+});
 
 const organization_role = new Schema({
     organization_role_name: String,
@@ -112,6 +112,12 @@ const organization_channels_connection = new Schema({
     organizationIds: [{ type: Schema.Types.ObjectId, ref: 'OrganizationDetails' }]
 }, { timestamps: true })
 
+const client = new Schema({
+    username: String,
+    password: String,
+    access_code: String
+});
+
 const Organization = mongoose.model('Organization', organization);
 const OrganizationUser = mongoose.model('OrganizationUser', organization_user);
 const OrganizationRole = mongoose.model('OrganizationRole', organization_role);
@@ -127,30 +133,7 @@ const Invite = mongoose.model('Invite', invite);
 const Notification = mongoose.model('Notification', notification);
 const Verification = mongoose.model('Verification', organization_verification);
 const OrganizationChannelConnection = mongoose.model('OrganizationChannelConnection', organization_channels_connection);
-
-// let privs = [
-//     {
-//         code: '0401',
-//         name: 'Can add user',
-//         description: ''
-//     },
-//     {
-//         code: '0101',
-//         name: 'Can add asset',
-//         description: ''
-//     }
-// ]
-
-// let a = (async () => {
-//     for (let priv of privs) {
-//         let pr = new OrganizationPrivillege({
-//             organization_privillege_code: priv.code,
-//             organization_privillege_name: priv.name,
-//             organization_privillege_description: priv.description
-//         })
-//         await pr.save();
-//     }
-// })()
+const Client = mongoose.model('Client', client);
 
 export default {
     Organization,
@@ -167,5 +150,6 @@ export default {
     OrganizationChannelConnection,
     OrganizationUser,
     OrganizationRole,
-    OrganizationPrivillege
+    OrganizationPrivillege,
+    Client
 }

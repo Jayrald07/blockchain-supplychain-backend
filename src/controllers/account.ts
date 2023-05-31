@@ -4,7 +4,7 @@ import Model from "../models";
 import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import axios from "axios";
-import { generateKeyPairSync } from "crypto"
+import { generateKeyPairSync, randomUUID } from "crypto"
 import { createKeys, encryptSymData } from "../utils/general";
 import { notify, sendMail, validateJwt } from "../helpers";
 import { matchedData, validationResult } from "express-validator";
@@ -22,6 +22,117 @@ export const pingNode = async (req: any, res: Response) => {
         else res.send({ message: "Error", details: "cannot ping" })
     } catch (error: any) {
         res.send({ message: "Error", details: error.message });
+    }
+
+}
+
+export const setupClient = async (req: any, res: Response) => {
+
+    try {
+
+        const { username, password } = req.body;
+
+        const access_code = randomUUID().toString();
+
+        const client = await Model.Client.findOne({ username });
+
+        if (client) throw new Error("Username taken");
+
+        const encryptedPass = bcrypt.hashSync(password, 10);
+
+        const newClient = new Model.Client({
+            username,
+            password: encryptedPass,
+            access_code
+        });
+
+        newClient.save();
+
+        res.send({
+            message: "Done", details: {
+                access_code
+            }
+        })
+
+    } catch (error: any) {
+
+        res.send({ message: "Error", details: error.message });
+
+    }
+
+}
+
+export const authClient = async (req: any, res: Response) => {
+
+    try {
+
+        const { username, password } = req.body;
+
+
+        const client = await Model.Client.findOne({ username });
+
+        if (!client) throw new Error("Invalid username or password");
+
+        const isPasswordValid = bcrypt.compareSync(password, client.password as string);
+
+        if (!isPasswordValid) throw new Error("Invalid username or password");
+
+        res.send({ message: "Authorized", token: jwt.sign({ username, client_id: client.id }, process.env.SECRET_KEY as string, { expiresIn: "1d" }) })
+
+    } catch (error: any) {
+
+        res.send({ message: "Error", details: error.message })
+
+    }
+
+}
+
+export const getClient = async (req: any, res: Response) => {
+
+    try {
+
+        if (!req.headers.authorization) throw new Error("Unauthorized")
+
+        const token = req.headers.authorization?.split(" ")[1] as string;
+
+        const decoded = jwt.verify(token, process.env.SECRET_KEY as string) as any;
+
+        res.send({
+            message: "Done",
+            details: decoded
+        })
+
+    } catch (error: any) {
+
+        res.send({ message: "Error", details: error.message })
+
+    }
+
+}
+
+export const updateClient = async (req: any, res: Response) => {
+
+    try {
+
+        const { username, password } = req.body;
+
+        const client = await Model.Client.findById(req.clientId);
+
+        if (!client) throw new Error("Cannot find client");
+
+        const newPassword = bcrypt.hashSync(password, 10);
+
+        await client.updateOne({
+            username,
+            password: newPassword
+        })
+
+        res.send({ message: "Done", details: "Client updated!" });
+
+    } catch (error: any) {
+
+        res.send({ message: "Error", details: error.message })
+
     }
 
 }
