@@ -397,6 +397,7 @@ export const createAsset = async (body: any, node: AxiosInstance) => {
         body.assetId = response.asset_uuid
         body.channelId = channelId
         const { data } = await node.post("/createAsset", body)
+        console.log(data)
         return { message: "Done", details: JSON.parse(data) }
     } catch (e: any) {
         return { message: "Error", details: e.message };
@@ -408,9 +409,24 @@ export const getAssets = async (body: any, node: AxiosInstance) => {
 
     try {
         const { data } = await node.post("/getAssets", body)
+
         const assets = await models.Asset.find({ isDelete: 0, asset_uuid: { $in: data.details }, asset_name: { $regex: new RegExp(body.term), $options: 'i' } }, { isDelete: 0, __v: 0 }).populate("origin", { organization_name: 1, _id: 0 })
 
         return { message: "Done", details: assets }
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+
+}
+
+export const assetProvenance = async (body: any, node: AxiosInstance) => {
+
+    try {
+        const { data } = await node.post("/assetProvenance", body)
+        console.log(data)
+        // const assets = await models.Asset.find({ isDelete: 0, asset_uuid: { $in: data.details }, asset_name: { $regex: new RegExp(body.term), $options: 'i' } }, { isDelete: 0, __v: 0 }).populate("origin", { organization_name: 1, _id: 0 })
+
+        return { message: "Done", details: data }
     } catch (err: any) {
         return { message: "Error", details: err.message };
     }
@@ -589,6 +605,17 @@ export const removeAsset = async (body: any, node: AxiosInstance) => {
         body.assetIds = assetIds;
 
         let { data } = await node.post("/removeAsset", body)
+
+        return { message: "Done", details: data }
+    } catch (err: any) {
+        return { message: "Error", details: err.message };
+    }
+}
+
+export const getAll = async (body: any, node: AxiosInstance) => {
+    try {
+
+        let { data } = await node.post("/getAll", body)
 
         return { message: "Done", details: data }
     } catch (err: any) {

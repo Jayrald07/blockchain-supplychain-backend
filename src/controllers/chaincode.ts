@@ -1,6 +1,6 @@
 import { Request, Response, Router } from "express";
 import axios from "axios";
-import { acceptAsset, byLogStatus, byStatus, cancelTransaction, createAsset, generatePdf, generatePdfTransaction, getAssets, getBackAssets, getLogs, getOrgDetails, notify, ownAsset, pullAssets, pushAssets, readAsset, readCollection, rejectTransaction, removeAsset, returnTransaction, transferAsset, transferNow, updateAsset } from "../helpers";
+import { acceptAsset, assetProvenance, byLogStatus, byStatus, cancelTransaction, createAsset, generatePdf, generatePdfTransaction, getAll, getAssets, getBackAssets, getLogs, getOrgDetails, notify, ownAsset, pullAssets, pushAssets, readAsset, readCollection, rejectTransaction, removeAsset, returnTransaction, transferAsset, transferNow, updateAsset } from "../helpers";
 import models from "../models";
 import { DateTime } from "luxon";
 import { sleep } from "../utils/general";
@@ -400,6 +400,18 @@ export const performAction = async (req: any, res: Response) => {
                 args.host = organization?.organization_ip
                 args.orgId = req.orgId
                 data = await removeAsset(args, node);
+                break;
+            case "GETALL":
+                args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
+                args.orgId = req.orgId
+                data = await getAll(args, node);
+                break;
+            case "PROVENANCE":
+                args.orgName = organization?.organization_name;
+                args.host = organization?.organization_ip
+                args.orgId = req.orgId
+                data = await assetProvenance(args, node);
                 break;
 
             default:
